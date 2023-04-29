@@ -1,8 +1,6 @@
 from langchain.utilities import GoogleSerperAPIWrapper
-from langchain.utilities import GoogleSerperAPIWrapper
 from langchain.chat_models import ChatOpenAI
-from langchain.agents import initialize_agent, Tool
-from langchain.agents import AgentType
+from langchain.agents import initialize_agent, Tool, AgentType
 from BaseAction import BaseAction
 from shortcuts import super_key
 from pynput import keyboard

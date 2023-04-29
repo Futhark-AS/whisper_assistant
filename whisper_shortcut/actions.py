@@ -16,6 +16,7 @@ from translate import Translate
 from transcribe import Transcribe
 from langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
 from search_agent import GoogleSearchAgent, GoogleSearchReactAgent
+from bash import BashAgentStartFolder
 
 logger = logging.getLogger()
 
@@ -28,6 +29,7 @@ actions = [
     Transcribe(),
     SimpleGPT4Action(),
     SimpleGPT4ActionWithInput(),
+    BashAgentStartFolder(),
 ]
 print("Ready")
 for action in actions:
