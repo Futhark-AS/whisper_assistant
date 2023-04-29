@@ -9,7 +9,7 @@ from datetime import datetime
 import json
 from pydub import AudioSegment
 import traceback
-from shortcuts import hotkey_action_mappings, hotkey_stop, hotkey_cancel
+from shortcuts import hotkey_stop, hotkey_cancel
 from speak import say_text
 from config import Config
 import logging
@@ -17,8 +17,7 @@ import requests
 from audio_processing import preprocess_audio, transcribe
 import shutil
 from prompts import system_prompt_with_input, user_prompt_template, system_prompt_summarizer, system_prompt_without_input
-from action_configs import configs
-from agents import agents
+from actions import actions
 
 cfg = Config()
 logger = logging.getLogger()
@@ -27,8 +26,8 @@ WHISPER_PRICE = 0.006
 GPT_3_PRICE = 0.0005
 GPT_PROMPT_PRICE = 0.03
 GPT_COMPLETION_PRICE = 0.06
-AUDIO_FILE_NAME = "media_results/output.wav"
-RAW_AUDIO_FILE_NAME = "media_results/raw_output.wav"
+AUDIO_FILE_NAME = "output.wav"
+RAW_AUDIO_FILE_NAME = "raw_output.wav"
 
 UI_TXT = {
     "idle": "🧠",
@@ -43,17 +42,7 @@ current_keys = set()
 processing_thread = None
 stop_action = False
 
-next_action_config = {
-    "whisper_mode": "",
-    "agent": None,
-    "use_clipboard_input": False,
-}
-
-next_action_config_default = {
-    "whisper_mode": "translate",
-    "agent": None,
-    "use_clipboard_input": False,
-}
+next_action = None
 
 rumps_app = None
 
@@ -122,24 +111,23 @@ def start_recording():
     wf.close()
 
 def on_press(key):
-    global current_keys, recording, processing_thread, stop_action, next_action_config
+    global current_keys, recording, processing_thread, stop_action, next_action
     current_keys.add(key)
-
-    action_config = {}
 
     if processing_thread is None:
         if not recording:
-            for hotkey in hotkey_action_mappings:
-                if all([k in current_keys for k in hotkey_action_mappings[hotkey]]):
-                    logger.info(f"{hotkey} hotkey pressed")
-                    action_config = configs[hotkey]
+            next_action = None
+            for action in actions:
+                if all([k in current_keys for k in action.shortcut]):
+                    logger.info(f"{action.name} hotkey pressed")
+                    logger.info(f"Action config: {action.config}")
+                    next_action = action
                     break
 
-            next_action_config = {**next_action_config_default, **action_config}
-            print(next_action_config)
-        else:
-            processing_thread = threading.Thread(target=run_action)
-            processing_thread.start()
+            if next_action:
+                recording = True
+                processing_thread = threading.Thread(target=run_action)
+                processing_thread.start()
 
     elif all([k in current_keys for k in hotkey_stop]):
         logger.info("Stop hotkey pressed")
@@ -309,7 +297,7 @@ def summarize_text(text: str, system_prompt):
     return text
 
 def run_action():
-    global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action_config
+    global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action
     price = {}
     # TODO: add error handling - giving feedback to user on error
     try:
@@ -328,26 +316,28 @@ def run_action():
 
         set_status(UI_TXT["transcribing"])
 
-        text = transcribe(AUDIO_FILE_NAME, next_action_config["mode"])
+        text = transcribe(AUDIO_FILE_NAME, next_action.config["whisper_mode"])
 
         price["whisper"] = get_whisper_price()
 
         # Store results of recording and transcription
         if cfg.save_mode:
-            metadata = next_action_config
+            metadata = next_action.config
 
             # Store string version of metadata
             upload(text, json.dumps(metadata))
 
         set_status(UI_TXT["processing"])
 
-        if next_action_config['use_clipboard_input']:
-            text = user_prompt_template % (pyperclip.paste(), text)
+        if next_action.config['use_clipboard_input']:
+            inp = user_prompt_template % (pyperclip.paste(), text)
         else:
-            text = text
+            inp = text
 
 
-        response = agents[next_action_config["agent"]](text, system_prompt_with_input)
+        logger.info(f"Running agent {next_action.name}")
+        response = next_action(inp)
+        logger.info(f"Agent {next_action.name} finished")
         
 
         #     price["gpt_prompt"] = response["usage"]["prompt_tokens"] / 1000 * GPT_PROMPT_PRICE
