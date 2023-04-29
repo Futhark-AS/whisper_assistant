@@ -29,7 +29,9 @@ To finish the chat, use the following format:
 Thought: I now know the final answer...
 Final Answer: the final answer to the original input question
 
-Always stick to one of the above formats!
+ALWAYS follow STRICTLY one of the above formats in your response ("Thought" + "Action" + "Action Input" together || "Thought + "Final Answer" together) or the chat will not work.
+
+Never answer with only thoughts.
 
 Instruction: {input}
 {agent_scratchpad}"""
@@ -48,7 +50,7 @@ class CustomPromptTemplate(BaseChatPromptTemplate):
         thoughts = ""
         for action, observation in intermediate_steps:
             thoughts += action.log
-            thoughts += f"\nObservation: {observation}\nThought: "
+            thoughts += f"\nObservation: {observation}"
         # Set the agent_scratchpad variable to that value
         kwargs["agent_scratchpad"] = thoughts
         # Create a tools variable from the list of tools provided

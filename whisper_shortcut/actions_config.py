@@ -16,6 +16,7 @@ from actions.transcribe import Transcribe
 from actions.agents.langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
 from actions.agents.search_agent import GoogleSearchAgent, GoogleSearchReactAgent
 from actions.agents.bash import BashAgentStartFolder
+from actions.agents.executor import ExecutorAgent
 # from actions.agents.zapier import ZapierAgent, ZapierAgentInput
 
 logger = logging.getLogger()
@@ -30,6 +31,7 @@ actions = [
     SimpleGPT4Action(),
     SimpleGPT4ActionWithInput(),
     BashAgentStartFolder(),
+    ExecutorAgent(),
     # ZapierAgent(),
     # ZapierAgentInput(),
 ]
