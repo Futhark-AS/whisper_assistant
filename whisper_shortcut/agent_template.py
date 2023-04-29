@@ -4,6 +4,8 @@ from langchain import SerpAPIWrapper, LLMChain
 from langchain.chat_models import ChatOpenAI
 from typing import List, Union
 from langchain.schema import AgentAction, AgentFinish, HumanMessage, SystemMessage
+import logging
+logger = logging.getLogger()
 import re
 # Set up the base template
 
@@ -27,6 +29,7 @@ To finish the chat, use the following format:
 Thought: I now know the final answer...
 Final Answer: the final answer to the original input question
 
+Always stick to one of the above formats!
 
 Instruction: {input}
 {agent_scratchpad}"""
@@ -70,7 +73,9 @@ class CustomOutputParser(AgentOutputParser):
         regex = r"Action\s*\d*\s*:(.*?)\nAction\s*\d*\s*Input\s*\d*\s*:[\s]*(.*)"
         match = re.search(regex, llm_output, re.DOTALL)
         if not match:
-            raise ValueError(f"Could not parse LLM output: `{llm_output}`")
+            logger.warning(f"Could not parse LLM output: `{llm_output}`")
+            # raise ValueError(f"Could not parse LLM output: `{llm_output}`")
+            AgentFinish(typename="AgentFinish", return_values={"output": llm_output}, log=llm_output)
         action = match.group(1).strip()
         action_input = match.group(2)
         # Return the action and action input

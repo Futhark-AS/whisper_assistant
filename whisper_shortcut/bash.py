@@ -8,14 +8,14 @@ from shortcuts import super_key
 from pynput import keyboard
 
 bash = BashProcess(persistent=True)
-chat = ChatOpenAI(temperature=0, model_name="gpt-4")
+# chat = ChatOpenAI(temperature=0, model_name="gpt-4")
 chat2 = ChatOpenAI(temperature=0, model_name="gpt-4")
-bashChain = LLMBashChain(llm=chat, bash_process=bash, verbose=True)
+# bashChain = LLMBashChain(llm=chat, bash_process=bash, verbose=True)
 tools = [
     Tool(
-        name="Smart bash executor",
-        func=lambda input_text: bashChain.run(input_text),
-        description="Always use this tool for commands that you want to run in bash. Remember to use the correct format of Question, Thought, Action, Action Input in your response when using this tool."
+        name="bash executor",
+        func=lambda input_text: bash.run(input_text),
+        description="Always use this tool for commands that you want to run in bash. Remember to use the correct format of Thought, Action, Action Input in your response when using this tool."
     )
 ]
 # agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
