@@ -1,6 +1,10 @@
+import os
+os.environ["SERPER_API_KEY"] = "aac220712fb4df68bedadd83d7469b8e39d06596fd01a0e2d67ebadb2552ac47"
+os.environ["SERPAPI_API_KEY"] = "aac220712fb4df68bedadd83d7469b8e39d06596fd01a0e2d67ebadb2552ac47"
+os.environ["ZAPIER_NLA_API_KEY"] = ""
+
 import pyaudio
 import wave
-import os
 import openai
 import pyperclip
 from pynput import keyboard
@@ -17,7 +21,8 @@ import requests
 from audio_processing import preprocess_audio, transcribe
 import shutil
 from prompts import system_prompt_with_input, user_prompt_template, system_prompt_summarizer, system_prompt_without_input
-from actions import actions
+from actions_config import actions
+
 
 cfg = Config()
 logger = logging.getLogger()
@@ -316,7 +321,12 @@ def run_action():
 
         set_status(UI_TXT["transcribing"])
 
-        text = transcribe(AUDIO_FILE_NAME, next_action.config["whisper_mode"])
+        try:
+            whisper_prompt = next_action.config["whisper_prompt"]
+        except KeyError:
+            whisper_prompt = None
+
+        text = transcribe(AUDIO_FILE_NAME, next_action.config["whisper_mode"], whisper_prompt)
 
         price["whisper"] = get_whisper_price()
 

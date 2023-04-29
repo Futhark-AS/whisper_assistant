@@ -1,4 +1,4 @@
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 import pyperclip
 from shortcuts import super_key
 from pynput import keyboard
@@ -15,5 +15,6 @@ class Translate(BaseAction):
             config={
                 "whisper_mode": "translate",
                 "use_clipboard_input": False,
+                "whisper_prompt": "mmmm, so yeah ...  you know ... like ... hmmmm ...",
             }
         )

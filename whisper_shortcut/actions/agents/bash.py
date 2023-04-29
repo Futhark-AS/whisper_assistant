@@ -1,7 +1,7 @@
 from langchain.utilities import BashProcess
 from langchain.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 from langchain.chains import LLMBashChain
 
 from shortcuts import super_key
@@ -20,7 +20,7 @@ tools = [
 ]
 # agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
-from agent_template import custom_agent_executor
+from actions.agents.utils.agent_template import custom_agent_executor
 agent = custom_agent_executor(tools, chat2)
 
 # print(agent.agent.output_parser.get_format_instructions())

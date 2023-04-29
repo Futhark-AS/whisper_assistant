@@ -1,4 +1,4 @@
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 import pyperclip
 from shortcuts import super_key
 from pynput import keyboard

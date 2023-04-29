@@ -2,10 +2,10 @@ from langchain.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
 from langchain.agents.agent_toolkits import ZapierToolkit
 from langchain.utilities.zapier import ZapierNLAWrapper
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 from shortcuts import super_key
 from pynput import keyboard
-from agent_template import custom_agent_executor
+from actions.agents.utils.agent_template import custom_agent_executor
 
 llm = ChatOpenAI(temperature=0, model_name="gpt-4")
 zapier = ZapierNLAWrapper()

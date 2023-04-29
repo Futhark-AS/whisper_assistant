@@ -10,13 +10,13 @@ import pyperclip
 from prompts import system_prompt_with_input, system_prompt_without_input, user_prompt_template
 from shortcuts import super_key
 from pynput import keyboard
-from simple_gpt4_action import SimpleGPT4Action, SimpleGPT4ActionWithInput
-from translate import Translate
-from transcribe import Transcribe
-from langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
-from search_agent import GoogleSearchAgent, GoogleSearchReactAgent
-from bash import BashAgentStartFolder
-from zapier import ZapierAgent, ZapierAgentInput
+from actions.simple_gpt4_action import SimpleGPT4Action, SimpleGPT4ActionWithInput
+from actions.translate import Translate
+from actions.transcribe import Transcribe
+from actions.agents.langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
+from actions.agents.search_agent import GoogleSearchAgent, GoogleSearchReactAgent
+from actions.agents.bash import BashAgentStartFolder
+# from actions.agents.zapier import ZapierAgent, ZapierAgentInput
 
 logger = logging.getLogger()
 
@@ -30,8 +30,8 @@ actions = [
     SimpleGPT4Action(),
     SimpleGPT4ActionWithInput(),
     BashAgentStartFolder(),
-    ZapierAgent(),
-    ZapierAgentInput(),
+    # ZapierAgent(),
+    # ZapierAgentInput(),
 ]
 print("Ready")
 for action in actions:

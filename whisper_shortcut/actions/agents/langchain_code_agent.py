@@ -1,4 +1,4 @@
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 import pyperclip
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import TokenTextSplitter
@@ -12,7 +12,7 @@ from langchain.retrievers.document_compressors import LLMChainExtractor
 from shortcuts import super_key
 from pynput import keyboard
 
-from agent_template import custom_agent_executor
+from actions.agents.utils.agent_template import custom_agent_executor
 
 
 embeddings = OpenAIEmbeddings()

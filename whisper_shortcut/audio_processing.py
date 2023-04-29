@@ -42,13 +42,18 @@ def preprocess_audio(audio_file_name, raw_audio_file_name, min_silence_len=1000,
     # Save the output audio file
     output_audio.export(audio_file_name, format="wav")
 
-def transcribe(audio_file_name, mode):
+def transcribe(audio_file_name, mode, whisper_prompt):
     audio_file = open(audio_file_name, "rb")
     logger.info("Transcribing audio...")
+
     if mode == "translate":
-        transcript = openai.Audio.translate("whisper-1", audio_file)
+        transcript = openai.Audio.translate("whisper-1", audio_file, {
+            "prompt": whisper_prompt or "",
+        })
     elif mode == "transcribe":
-        transcript = openai.Audio.transcribe("whisper-1", audio_file)
+        transcript = openai.Audio.transcribe("whisper-1", audio_file, {
+            "prompt": whisper_prompt or "",
+        })
     else:
         logger.info("Invalid mode")
         return
