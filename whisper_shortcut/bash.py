@@ -18,9 +18,12 @@ tools = [
         description="Always use this tool for commands that you want to run in bash. Remember to use the correct format of Question, Thought, Action, Action Input in your response when using this tool."
     )
 ]
-agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+# agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
-print(agent.agent.output_parser.get_format_instructions())
+from agent_template import custom_agent_executor
+agent = custom_agent_executor(tools, chat2)
+
+# print(agent.agent.output_parser.get_format_instructions())
 
 
 

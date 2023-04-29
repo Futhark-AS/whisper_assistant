@@ -1,5 +1,4 @@
 import logging
-from BaseAction import BaseAction
 from langchain.agents import Tool, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain.chat_models import ChatOpenAI
@@ -17,6 +16,7 @@ from transcribe import Transcribe
 from langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
 from search_agent import GoogleSearchAgent, GoogleSearchReactAgent
 from bash import BashAgentStartFolder
+from zapier import ZapierAgent, ZapierAgentInput
 
 logger = logging.getLogger()
 
@@ -30,6 +30,8 @@ actions = [
     SimpleGPT4Action(),
     SimpleGPT4ActionWithInput(),
     BashAgentStartFolder(),
+    ZapierAgent(),
+    ZapierAgentInput(),
 ]
 print("Ready")
 for action in actions:

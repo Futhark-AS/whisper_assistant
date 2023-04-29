@@ -12,6 +12,8 @@ from langchain.retrievers.document_compressors import LLMChainExtractor
 from shortcuts import super_key
 from pynput import keyboard
 
+from agent_template import custom_agent_executor
+
 
 embeddings = OpenAIEmbeddings()
 
@@ -49,7 +51,8 @@ tools = [
 ]
 
 chat = ChatOpenAI(model_name="gpt-4") 
-agent = initialize_agent(tools, chat, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+# agent = initialize_agent(tools, chat, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+agent = custom_agent_executor(tools, chat)
 def langchain_code_agent(input_text):
     res = agent.run(input_text)
     pyperclip.copy(res)
