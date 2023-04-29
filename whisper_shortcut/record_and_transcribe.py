@@ -8,9 +8,8 @@ import threading
 from datetime import datetime
 import json
 from pydub import AudioSegment
-from pydub.silence import split_on_silence
 import traceback
-from shortcuts import *
+from shortcuts import hotkey_action_mappings, hotkey_stop, hotkey_cancel
 from speak import say_text
 from config import Config
 import logging
@@ -18,6 +17,8 @@ import requests
 from audio_processing import preprocess_audio, transcribe
 import shutil
 from prompts import system_prompt_with_input, user_prompt_template, system_prompt_summarizer, system_prompt_without_input
+from action_configs import configs
+from agents import agents
 
 cfg = Config()
 logger = logging.getLogger()
@@ -38,13 +39,21 @@ UI_TXT = {
 }
 
 recording = False
-mode = ""
-use_gpt = False
-use_gpt_input = False
 current_keys = set()
 processing_thread = None
 stop_action = False
-gpt_followup = False
+
+next_action_config = {
+    "whisper_mode": "",
+    "agent": None,
+    "use_clipboard_input": False,
+}
+
+next_action_config_default = {
+    "whisper_mode": "translate",
+    "agent": None,
+    "use_clipboard_input": False,
+}
 
 rumps_app = None
 
@@ -98,7 +107,6 @@ def start_recording():
 
     logger.info("start recording...")
     frames = []
-    seconds = 3
     while recording:
         data = stream.read(CHUNK)
         frames.append(data)
@@ -114,42 +122,24 @@ def start_recording():
     wf.close()
 
 def on_press(key):
-    global current_keys, recording, processing_thread, stop_action
+    global current_keys, recording, processing_thread, stop_action, next_action_config
     current_keys.add(key)
 
+    action_config = {}
+
     if processing_thread is None:
-        if all([k in current_keys for k in hotkey_translate]):
-            logger.info("Translate hotkey pressed")
-            on_translate_hotkey()
+        if not recording:
+            for hotkey in hotkey_action_mappings:
+                if all([k in current_keys for k in hotkey_action_mappings[hotkey]]):
+                    logger.info(f"{hotkey} hotkey pressed")
+                    action_config = configs[hotkey]
+                    break
 
-        elif all([k in current_keys for k in hotkey_transcribe]):
-            logger.info("Transcribe hotkey pressed")
-            on_transcribe_hotkey()
-
-        elif all([k in current_keys for k in hotkey_gpt_with_input]):
-            logger.info("GPT with input hotkey pressed")
-            on_gpt_with_input_hotkey()
-
-        elif all([k in current_keys for k in hotkey_gpt_translate]):
-            logger.info("GPT translate hotkey pressed")
-            on_gpt_translate_hotkey()
-
-        elif all([k in current_keys for k in hotkey_gpt_transcribe]):
-            logger.info("GPT transcribe hotkey pressed")
-            on_gpt_transcribe_hotkey()
-
-
-        elif all([k in current_keys for k in hotkey_gpt_follow_up]):
-            logger.info("GPT transcribe hotkey pressed")
-            on_gpt_followup_hotkey()
-
-        if recording:
+            next_action_config = {**next_action_config_default, **action_config}
+            print(next_action_config)
+        else:
             processing_thread = threading.Thread(target=run_action)
             processing_thread.start()
-
-    if all([k in current_keys for k in hotkey_toggle_speak_mode]):
-        logger.info("Toggle speak mode hotkey pressed")
-        on_toggle_speak_mode()
 
     elif all([k in current_keys for k in hotkey_stop]):
         logger.info("Stop hotkey pressed")
@@ -159,23 +149,6 @@ def on_press(key):
         logger.info("Cancel hotkey pressed")
         recording = False
         stop_action = True
-
-    elif all([k in current_keys for k in hotkey_summarize_current_conv]):
-        logger.info("Current conversation summarization hotkey pressed")
-        on_summarize_current_hotkey()
-
-
-    # tts hotkeys
-    elif all([k in current_keys for k in hotkey_clipboard_tts]):
-        logger.info("Speak clipboard hotkey pressed")
-        # TODO: this may cause weird behavior if the user presses the hotkey multiple times
-        on_tts_hotkey()
-
-
-    elif all([k in current_keys for k in hotkey_clipboard_summarized_tts]):
-        logger.info("Speak clipboard summarized hotkey pressed")
-        # TODO: this may cause weird behavior if the user presses the hotkey multiple times
-        on_tts_summarized_hotkey()
 
 def on_toggle_speak_mode():
     cfg.toggle_speak_mode()
@@ -193,55 +166,6 @@ def on_release(key):
     if key in current_keys:
         current_keys.remove(key)
     
-
-def on_translate_hotkey():
-    global recording, mode, use_gpt
-    if not recording:
-        recording = True
-        mode = "translate"
-        use_gpt = False
-
-def on_transcribe_hotkey():
-    global recording, mode, use_gpt
-    if not recording:
-        recording = True
-        mode = "transcribe"
-        use_gpt = False
-
-def on_gpt_with_input_hotkey():
-    global recording, mode, use_gpt, use_gpt_input
-    if not recording:
-        recording = True
-        mode = "translate"
-        use_gpt = True
-        use_gpt_input = True
-
-def on_gpt_translate_hotkey():
-    global recording, mode, use_gpt, use_gpt_input
-    if not recording:
-        recording = True
-        mode = "translate"
-        use_gpt = True
-        use_gpt_input = False
-
-
-def on_gpt_transcribe_hotkey():
-    global recording, mode, use_gpt, use_gpt_input
-    if not recording:
-        recording = True
-        mode = "transcribe"
-        use_gpt = True
-        use_gpt_input = False
-
-def on_gpt_followup_hotkey():
-    global recording, mode, use_gpt, use_gpt_input, gpt_followup
-    if not recording:
-        recording = True
-        mode = "transcribe"
-        use_gpt = True
-        use_gpt_input = False
-        gpt_followup = True
-
 def on_tts_summarized_hotkey():
     thread = threading.Thread(target=speak_clipboard_summarized)
     thread.start()
@@ -385,7 +309,7 @@ def summarize_text(text: str, system_prompt):
     return text
 
 def run_action():
-    global mode, use_gpt, use_gpt_input, recording, processing_thread, stop_action, LAST_GPT_CONV, gpt_followup
+    global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action_config
     price = {}
     # TODO: add error handling - giving feedback to user on error
     try:
@@ -404,60 +328,43 @@ def run_action():
 
         set_status(UI_TXT["transcribing"])
 
-        text = transcribe(AUDIO_FILE_NAME, mode)
+        text = transcribe(AUDIO_FILE_NAME, next_action_config["mode"])
 
         price["whisper"] = get_whisper_price()
 
         # Store results of recording and transcription
         if cfg.save_mode:
-            metadata = {
-                "mode": mode,
-                "use_gpt": use_gpt,
-                "use_gpt_input": use_gpt_input
-            }
+            metadata = next_action_config
 
             # Store string version of metadata
             upload(text, json.dumps(metadata))
 
-        if use_gpt:
-            if gpt_followup:
-                messages = LAST_GPT_CONV + [{"role": "user", "content": text}]
-                gpt_followup = False
-            elif use_gpt_input:
-                messages = [
-                    {"role": "system", "content": system_prompt_with_input},
-                    {"role": "user", "content": user_prompt_template % (pyperclip.paste(), text)}
-                ]
-            else:
-                messages = [
-                    {"role": "system", "content": system_prompt_without_input},
-                    {"role": "user", "content": text}
-                ]
+        set_status(UI_TXT["processing"])
 
-            set_status(UI_TXT["processing"])
+        if next_action_config['use_clipboard_input']:
+            text = user_prompt_template % (pyperclip.paste(), text)
+        else:
+            text = text
 
-            logger.info(messages)
 
-            response = openai.ChatCompletion.create(
-                messages=messages,
-                model=cfg.gpt_model
-            )
+        response = agents[next_action_config["agent"]](text, system_prompt_with_input)
+        
 
-            price["gpt_prompt"] = response["usage"]["prompt_tokens"] / 1000 * GPT_PROMPT_PRICE
-            price["gpt_completion"] = response["usage"]["completion_tokens"] / 1000 * GPT_COMPLETION_PRICE
+        #     price["gpt_prompt"] = response["usage"]["prompt_tokens"] / 1000 * GPT_PROMPT_PRICE
+        #     price["gpt_completion"] = response["usage"]["completion_tokens"] / 1000 * GPT_COMPLETION_PRICE
 
-            LAST_GPT_CONV = messages + [{"role": "assistant", "content": response.choices[0].message.content}]
+        #     LAST_GPT_CONV = messages + [{"role": "assistant", "content": response.choices[0].message.content}]
 
-            text = response.choices[0].message.content
+        #     text = response.choices[0].message.content
 
-            if cfg.speak_mode:
-                say_text(text)
+        #     if cfg.speak_mode:
+        #         say_text(text)
 
-            print("Chat response:", text)
+        #     print("Chat response:", text)
 
-        pyperclip.copy(text)
+        # pyperclip.copy(text)
 
-        print_price(price)
+        # print_price(price)
 
         set_status(UI_TXT["idle"])
 
