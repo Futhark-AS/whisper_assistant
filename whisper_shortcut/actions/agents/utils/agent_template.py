@@ -29,12 +29,15 @@ To finish the chat, use the following format:
 Thought: I now know the final answer...
 Final Answer: the final answer to the original input question
 
+
+Instruction: {input}
+{agent_scratchpad}
+
+
 ALWAYS follow STRICTLY one of the above formats in your response ("Thought" + "Action" + "Action Input" together || "Thought + "Final Answer" together) or the chat will not work.
 
 Never answer with only thoughts.
-
-Instruction: {input}
-{agent_scratchpad}"""
+"""
 
 # Set up a prompt template
 class CustomPromptTemplate(BaseChatPromptTemplate):
