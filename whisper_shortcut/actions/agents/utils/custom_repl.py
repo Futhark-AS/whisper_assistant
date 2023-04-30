@@ -40,3 +40,31 @@ class CustomREPL():
             sys.stdout = old_stdout
             output = str(e)
         return output
+
+    def add_code(self, command: str) -> str:
+        """Run command with own globals/locals and returns anything printed."""
+        old_stdout = sys.stdout
+        sys.stdout = mystdout = StringIO()
+        try:
+            file_name = "temp123.py"
+
+            # remove ```python ... ```
+            command = command.replace("```python", "")
+            command = command.replace("```", "")
+            with open(file_name, "a") as f:
+                f.write(command)
+
+            # execfile(file_name, self.globals, self.locals)
+            # run bash command
+            self.bash_process.run(f"py {file_name}")
+
+
+            sys.stdout = old_stdout
+            output = mystdout.getvalue()
+
+            # os.remove(file_name)
+
+        except Exception as e:
+            sys.stdout = old_stdout
+            output = str(e)
+        return output

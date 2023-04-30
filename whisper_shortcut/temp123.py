@@ -1,40 +1,164 @@
 
-import matplotlib.pyplot as plt
+import tkinter as tk
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Define the Lorenz attractor function
-def lorenz(x, y, z, s=10, r=28, b=2.667):
-    x_dot = s*(y - x)
-    y_dot = r*x - y - x*z
-    z_dot = x*y - b*z
-    return x_dot, y_dot, z_dot
+def plot_function():
+    # get function from input field
+    function = function_entry.get()
+    # create x values
+    x = np.linspace(-10, 10, 1000)
+    # evaluate function for each x value
+    y = eval(function)
+    # create figure and axis
+    fig, ax = plt.subplots()
+    # plot function
+    ax.plot(x, y)
+    # set labels
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Function Plot')
+    # create canvas and show plot
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
 
-# Define the time steps
-dt = 0.01
-num_steps = 10000
+root = tk.Tk()
+root.title("Function Plotter")
 
-# Initialize the arrays
-xs = np.empty(num_steps + 1)
-ys = np.empty(num_steps + 1)
-zs = np.empty(num_steps + 1)
+# create input field for function
+function_label = tk.Label(root, text="Enter function:")
+function_label.pack()
+function_entry = tk.Entry(root)
+function_entry.pack()
 
-# Set initial values
-xs[0], ys[0], zs[0] = (0., 1., 1.05)
+# create button to plot function
+plot_button = tk.Button(root, text="Plot", command=plot_function)
+plot_button.pack()
 
-# Calculate the trajectory
-for i in range(num_steps):
-    x_dot, y_dot, z_dot = lorenz(xs[i], ys[i], zs[i])
-    xs[i+1] = xs[i] + (x_dot * dt)
-    ys[i+1] = ys[i] + (y_dot * dt)
-    zs[i+1] = zs[i] + (z_dot * dt)
+root.mainloop()
 
-# Plot the trajectory
-fig = plt.figure()
-ax = fig.gca(projection='3d')
-ax.plot(xs, ys, zs, lw=0.5)
-ax.set_xlabel("X Axis")
-ax.set_ylabel("Y Axis")
-ax.set_zlabel("Z Axis")
-ax.set_title("Lawrence Attractor")
-plt.show()
+
+import tkinter as tk
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+def plot_function():
+    # get function from input field
+    function = function_entry.get()
+    # create x values
+    x = np.linspace(-10, 10, 1000)
+    # evaluate function for each x value
+    y = eval(function)
+    # create figure and axis
+    fig, ax = plt.subplots()
+    # plot function
+    ax.plot(x, y)
+    # set labels
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Function Plot')
+    # create canvas and show plot
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+root = tk.Tk()
+root.title("Function Plotter")
+
+# create input field for function
+function_label = tk.Label(root, text="Enter function:")
+function_label.pack()
+function_entry = tk.Entry(root)
+function_entry.pack()
+
+# create button to plot function
+plot_button = tk.Button(root, text="Plot", command=plot_function)
+plot_button.pack()
+
+root.mainloop()
+
+
+import tkinter as tk
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+def plot_function():
+    # get function from input field
+    function = function_entry.get()
+    # create x values
+    x = np.linspace(-10, 10, 1000)
+    # evaluate function for each x value
+    y = eval(function)
+    # create figure and axis
+    fig, ax = plt.subplots()
+    # plot function
+    ax.plot(x, y)
+    # set labels
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Function Plot')
+    # create canvas and show plot
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+root = tk.Tk()
+root.title("Function Plotter")
+
+# create input field for function
+function_label = tk.Label(root, text="Enter function:")
+function_label.pack()
+function_entry = tk.Entry(root)
+function_entry.pack()
+
+# create button to plot function
+plot_button = tk.Button(root, text="Plot", command=plot_function)
+plot_button.pack()
+
+root.mainloop()
+
+
+import tkinter as tk
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+def plot_function():
+    # get function from input field
+    function = function_entry.get()
+    # create x values
+    x = np.linspace(-10, 10, 1000)
+    # evaluate function for each x value
+    y = eval(function)
+    # create figure and axis
+    fig, ax = plt.subplots()
+    # plot function
+    ax.plot(x, y)
+    # set labels
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Function Plot')
+    # create canvas and show plot
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+root = tk.Tk()
+root.title("Function Plotter")
+
+# create input field for function
+function_label = tk.Label(root, text="Enter function:")
+function_label.pack()
+function_entry = tk.Entry(root)
+function_entry.pack()
+
+# create button to plot function
+plot_button = tk.Button(root, text="Plot", command=plot_function)
+plot_button.pack()
+
+root.mainloop()
 

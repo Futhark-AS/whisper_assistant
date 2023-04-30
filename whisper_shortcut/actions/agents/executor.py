@@ -27,7 +27,16 @@ tools = [
     Tool(
         name="python executor",
         func=python_repl.run,
-        description="Always use this tool for writing and executing python code. Never give the code back to the user, try this tool until it works instead. When using this tool only provide the raw Python code in the Action Input. You have to provide the complete code to run when calling this tool. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it." 
+        description="Always use this tool for writing and executing full python code by replacing previous code. Never give the code back to the user, try this tool until it works instead. When using this tool only provide the raw Python code in the Action Input. You have to provide the complete code to run when calling this tool. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it." 
+    ),
+    # Tool(
+    #     name="python executor",
+    #     func=python_repl.run,
+    #     description="Always use this tool for writing and executing full 
+    Tool(
+        name="add python code and run",
+        func=python_repl.add_code,
+        description="Always use this tool for adding python code to the current python script and runs the full code. When using this tool only provide the raw Python code in the Action Input. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it."
     ),
     Tool(
         name="human input",
@@ -84,6 +93,7 @@ class ExecutorAgentWithInput(BaseAction):
         def action(input_text):
             bash.run("source ~/.zshrc")
             bash.run("conda activate agents")
+            bash.run("rm temp123.py")
             agent.run(input_text)
 
         self.action = action

@@ -346,7 +346,15 @@ def run_action():
 
 
         logger.info(f"Running agent {next_action.name}")
-        response = next_action(inp)
+        try:
+            response = next_action(inp)
+        except Exception as e:
+            logger.error(f"Error running agent {next_action.name}: {e}")
+            # traceback.print_exc()
+            set_status(UI_TXT["error"])
+            return
+
+
         logger.info(f"Agent {next_action.name} finished")
         
 
