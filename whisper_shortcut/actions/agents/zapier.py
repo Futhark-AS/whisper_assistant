@@ -7,7 +7,7 @@ from shortcuts import super_key
 from pynput import keyboard
 from actions.agents.utils.agent_template import custom_agent_executor
 
-llm = ChatOpenAI(temperature=0, model_name="gpt-4")
+llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
 zapier = ZapierNLAWrapper()
 toolkit = ZapierToolkit.from_zapier_nla_wrapper(zapier)
 # for tool in toolkit.get_tools():

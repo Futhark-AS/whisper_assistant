@@ -15,7 +15,7 @@ from pynput import keyboard
 bash = BashProcess(persistent=True)
 python_repl = CustomREPL()
 python_repl.bash_process = bash
-chat = ChatOpenAI(temperature=0, model_name="gpt-4")
+chat = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
 chat.request_timeout = 240
 # bashChain = LLMBashChain(llm=chat, bash_process=bash, verbose=True)
 tools = [
@@ -52,7 +52,29 @@ class ExecutorAgent(BaseAction):
         }
 
         super().__init__(
-            name="bash",
+            name="python and bash executor no input",
+            description="agent that runs python code or bash commands",
+            action=None,
+            shortcut=super_key | {keyboard.KeyCode.from_char("-")},
+            config=config
+        )
+
+        def action(input_text):
+            bash.run("source ~/.zshrc")
+            bash.run("conda activate agents")
+            agent.run(input_text)
+
+        self.action = action
+
+class ExecutorAgentWithInput(BaseAction):
+    def __init__(self):
+        config = {
+            "whisper_mode": "translate",
+            "use_clipboard_input": True
+        }
+
+        super().__init__(
+            name="python and bash executor with input",
             description="agent that runs python code or bash commands",
             action=None,
             shortcut=super_key | {keyboard.KeyCode.from_char("+")},
@@ -65,7 +87,6 @@ class ExecutorAgent(BaseAction):
             agent.run(input_text)
 
         self.action = action
-
 
 
 

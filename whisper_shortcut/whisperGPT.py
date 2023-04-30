@@ -1,5 +1,5 @@
 import rumps
-from record_and_transcribe import main
+from main import main
 import threading
 
 rumps.debug_mode(True)
