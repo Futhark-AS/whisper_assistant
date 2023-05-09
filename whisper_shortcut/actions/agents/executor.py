@@ -20,28 +20,24 @@ chat.request_timeout = 240
 # bashChain = LLMBashChain(llm=chat, bash_process=bash, verbose=True)
 tools = [
     Tool(
-        name="bash executor",
+        name="bash_executor",
         func=lambda input_text: bash.run(input_text),
         description="Always use this tool for commands that you want to run in bash, for example, if there is a pip library you need to install. To use pip, use the following bash: pip install x. Remember to use the correct format of Thought, Action, Action Input in your response when using this tool."
     ),
     Tool(
-        name="python executor",
+        name="python_executor",
         func=python_repl.run,
-        description="Always use this tool for writing and executing full python code by replacing previous code. Never give the code back to the user, try this tool until it works instead. When using this tool only provide the raw Python code in the Action Input. You have to provide the complete code to run when calling this tool. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it." 
+        description="Always use this tool for writing and executing full python code. Always start your python code with lots of detailed python comments on how the code should work and the high-level structure. Use lots of comments inside other places of the code aswell. You have to provide the complete code every time you use this tool, NOT just parts of the code. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it." 
     ),
     # Tool(
-    #     name="python executor",
-    #     func=python_repl.run,
-    #     description="Always use this tool for writing and executing full 
+    #     name="append python code to bottom and run",
+    #     func=python_repl.add_code,
+    #     description="Only use this tool to append code to the code you have already written in this session. DONT WRITE ALL THE CODE, JUST THE NEW CODE. If you need to replace previous code, use the python executor tool and NOT this. When using this tool only provide the raw Python code in the Action Input. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it."
+    # ),
     Tool(
-        name="add python code and run",
-        func=python_repl.add_code,
-        description="Always use this tool for adding python code to the current python script and runs the full code. When using this tool only provide the raw Python code in the Action Input. Remember to ALWAYS the correct format of Thought, Action, Action Input in your response when using this tool. If you get an empty observation, that means the code is running and the user is seeing it."
-    ),
-    Tool(
-        name="human input",
+        name="human",
         func=HumanInputRun().run,
-        description="Always use this tool for human input when you need acclaration on or specification of things that only the human can give you, or if you need help. Remember to use the correct format of Thought, Action, Action Input in your response when using this tool."
+        description="Use this tool in the beginning to give the human your ideas for how to structure the code, including your reflections. If the human says 'build', start writing code! Remember to use the correct format of Thought, Action, Action Input in your response when using this tool."
     )
 ]
 # agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
@@ -71,6 +67,7 @@ class ExecutorAgent(BaseAction):
         def action(input_text):
             bash.run("source ~/.zshrc")
             bash.run("conda activate agents")
+            bash.run("rm temp123.py")
             agent.run(input_text)
 
         self.action = action

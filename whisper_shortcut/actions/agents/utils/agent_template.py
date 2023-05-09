@@ -18,16 +18,16 @@ template = """Complete the Instruction given as best you can. You have access to
 Use the following format in your response (you can only do one action at a time):
 
 Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
+Action: the action to take, should be one of [{tool_names}] (i.e. Action: tool_name)
 Action Input: the input to the action
 
 Then you will see the following:
 Observation: the result of the action ... (this Thought/Action/Action Input/Observation can repeat N times, 1 for each chat response) 
 
 
-To finish the chat, use the following format:
-Thought: I now know the final answer...
-Final Answer: the final answer to the original input question
+When you are finished with your task, use the following format to stop:
+Thought: ...
+Final Answer: the final output of your task
 
 
 Instruction: {input}
@@ -83,6 +83,21 @@ class CustomOutputParser(AgentOutputParser):
             AgentFinish(typename="AgentFinish", return_values={"output": llm_output}, log=llm_output)
         action = match.group(1).strip()
         action_input = match.group(2)
+
+        # for SAM
+        "/path/to/file.jpg | text | 0.9 | 0.8 | 0.85\n"
+        "/path/to/file.jpg|text|0.9|0.8|0.85"
+        # If the string has the same format as the upper one, change it so it has the format as the lower one.
+        if action_input.count("|") == 4:
+            action_input = action_input.replace(" | ", "|")
+            action_input = action_input.replace(" |", "|") 
+            action_input = action_input.replace("| ", "|")
+
+            # last new line
+            if action_input[-1] == "\n":
+                action_input = action_input[:-1]
+
+
         # Return the action and action input
         return AgentAction(tool=action, tool_input=action_input.strip(" ").strip('"'), log=llm_output)
 

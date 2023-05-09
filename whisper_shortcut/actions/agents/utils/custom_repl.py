@@ -15,8 +15,8 @@ class CustomREPL():
 
     def run(self, command: str) -> str:
         """Run command with own globals/locals and returns anything printed."""
-        old_stdout = sys.stdout
-        sys.stdout = mystdout = StringIO()
+        # old_stdout = sys.stdout
+        # sys.stdout = mystdout = StringIO()
         try:
             file_name = "temp123.py"
 
@@ -28,23 +28,25 @@ class CustomREPL():
 
             # execfile(file_name, self.globals, self.locals)
             # run bash command
-            self.bash_process.run(f"py {file_name}")
+            output = self.bash_process.run(f"py {file_name}")
+
+            print("OUT", output)
 
 
-            sys.stdout = old_stdout
-            output = mystdout.getvalue()
+            # sys.stdout = old_stdout
+            # output = mystdout.getvalue()
 
             # os.remove(file_name)
 
         except Exception as e:
-            sys.stdout = old_stdout
+            # sys.stdout = old_stdout
             output = str(e)
         return output
 
     def add_code(self, command: str) -> str:
         """Run command with own globals/locals and returns anything printed."""
-        old_stdout = sys.stdout
-        sys.stdout = mystdout = StringIO()
+        # old_stdout = sys.stdout
+        # sys.stdout = mystdout = StringIO()
         try:
             file_name = "temp123.py"
 
@@ -56,15 +58,16 @@ class CustomREPL():
 
             # execfile(file_name, self.globals, self.locals)
             # run bash command
-            self.bash_process.run(f"py {file_name}")
+            output = self.bash_process.run(f"py {file_name}")
+            print("OUT", output)
 
 
-            sys.stdout = old_stdout
-            output = mystdout.getvalue()
+            # sys.stdout = old_stdout
+            # output = mystdout.getvalue()
 
             # os.remove(file_name)
 
         except Exception as e:
-            sys.stdout = old_stdout
+            # sys.stdout = old_stdout
             output = str(e)
         return output

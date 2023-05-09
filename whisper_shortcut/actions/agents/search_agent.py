@@ -19,7 +19,8 @@ tools = [
 ]
 self_ask_with_search = initialize_agent(tools, llm, agent=AgentType.SELF_ASK_WITH_SEARCH, verbose=True)
 
-react_agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+from actions.agents.utils.agent_template import custom_agent_executor
+react_agent = custom_agent_executor(tools, llm)
 
 
 class GoogleSearchAgent(BaseAction):
