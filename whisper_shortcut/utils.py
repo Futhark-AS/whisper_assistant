@@ -1,4 +1,5 @@
 import tiktoken
+import requests
 
 def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0301"):
     """Returns the number of tokens used by a list of messages."""
@@ -79,3 +80,34 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0301"):
 #     )
 #     print(f'{response["usage"]["prompt_tokens"]} prompt tokens counted by the OpenAI API.')
 #     print()
+
+def convert_usd_to_nok(amount_usd):
+    API_URL = "https://open.er-api.com/v6/latest/USD"
+
+    try:
+        response = requests.get(API_URL)
+        response.raise_for_status()
+        data = response.json()
+        usd_to_nok_rate = data["rates"]["NOK"]
+        amount_nok = amount_usd * usd_to_nok_rate
+        return amount_nok
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching exchange rate: {e}")
+        return None
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+def print_price(price):
+    GREEN = "\033[32m"
+    END_COLOR = "\033[0m"
+    for key, value in price.items():
+        print(f"{GREEN}{key.capitalize()}: ${value:.4f}{END_COLOR}")
+
+    # Print total price
+    total_price = sum(price.values())
+    nok = convert_usd_to_nok(total_price)
+    if nok is not None:
+        print(f"{GREEN}Total: ${total_price:.4f} ({nok:.6f} NOK){END_COLOR}")
+    else:
+        print(f"{GREEN}Total: ${total_price:.4f}{END_COLOR}")

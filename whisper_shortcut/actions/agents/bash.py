@@ -28,7 +28,7 @@ agent = custom_agent_executor(tools, chat2)
 
 
 class BashAgentStartFolder(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut):
         config = {
             "whisper_mode": "translate",
             "use_clipboard_input": True
@@ -38,7 +38,7 @@ class BashAgentStartFolder(BaseAction):
             name="bash",
             description="agent that runs bash commands",
             action=None,
-            shortcut=super_key | {keyboard.KeyCode.from_char("8")},
+            shortcut=shortcut,
             config=config
         )
 

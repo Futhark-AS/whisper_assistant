@@ -1,7 +1,9 @@
-import rumps
-from main import main
 import threading
+import rumps
+from config import Config
+from main import main
 
+cfg = Config()
 rumps.debug_mode(True)
 
 class AwesomeStatusBarApp(rumps.App):

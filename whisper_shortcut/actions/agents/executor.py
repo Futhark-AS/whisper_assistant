@@ -50,9 +50,9 @@ agent = custom_agent_executor(tools, chat)
 
 
 class ExecutorAgent(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut, whisper_mode="translate"): 
         config = {
-            "whisper_mode": "translate",
+            "whisper_mode": whisper_mode,
             "use_clipboard_input": False
         }
 
@@ -73,7 +73,7 @@ class ExecutorAgent(BaseAction):
         self.action = action
 
 class ExecutorAgentWithInput(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut):
         config = {
             "whisper_mode": "translate",
             "use_clipboard_input": True
@@ -83,14 +83,12 @@ class ExecutorAgentWithInput(BaseAction):
             name="python and bash executor with input",
             description="agent that runs python code or bash commands",
             action=None,
-            shortcut=super_key | {keyboard.KeyCode.from_char("+")},
+            shortcut=shortcut,
             config=config
         )
 
         def action(input_text):
-            bash.run("source ~/.zshrc")
-            bash.run("conda activate agents")
-            bash.run("rm temp123.py")
+            bash.run("source .venv/bin/activate")
             agent.run(input_text)
 
         self.action = action

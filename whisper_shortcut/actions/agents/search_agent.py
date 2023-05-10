@@ -4,12 +4,13 @@ from langchain.agents import initialize_agent, Tool, AgentType
 from actions.BaseAction import BaseAction
 from shortcuts import super_key
 from pynput import keyboard
+import os
 
 google_search_key = super_key | {keyboard.KeyCode.from_char("7")}
 google_search_react_key = super_key | {keyboard.KeyCode.from_char("6")}
 
 llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo")
-search = GoogleSerperAPIWrapper()
+search = GoogleSerperAPIWrapper(serper_api_key=os.environ.get("SERPER_API_KEY"))
 tools = [
     Tool(
         name="Intermediate Answer",
@@ -24,7 +25,7 @@ react_agent = custom_agent_executor(tools, llm)
 
 
 class GoogleSearchAgent(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut):
         config = {
             "whisper_mode": "translate",
             "use_clipboard_input": False,
@@ -34,13 +35,13 @@ class GoogleSearchAgent(BaseAction):
             name="google_search",
             description="agent that searches Google repeatedly to come up with an answer.",
             action=self_ask_with_search.run,
-            shortcut=google_search_key,
+            shortcut=shortcut,
             config=config
         )
 
 
 class GoogleSearchReactAgent(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut):
         config = {
             "whisper_mode": "translate",
             "use_clipboard_input": False,
@@ -50,6 +51,6 @@ class GoogleSearchReactAgent(BaseAction):
             name="google_search_react",
             description="agent that searches Google repeatedly to come up with an answer.",
             action=react_agent.run,
-            shortcut=google_search_react_key,
+            shortcut=shortcut,
             config=config
         )
