@@ -11,8 +11,7 @@ import pyperclip
 from prompts import system_prompt_with_input, system_prompt_without_input, user_prompt_template
 from shortcuts import super_key
 from pynput import keyboard
-from actions.single_gpt_action import BasicGPT4Task, BasicGPT4TaskWithInput, BasicGPT35Task, BasicGPT35TaskWithInput
-from actions.simple_gpt4_action import SimpleGPT4Action, SimpleGPTActionWithInput, Models
+from actions.simple_gpt_action import SimpleGPTAction, SimpleGPTActionWithInput, Models
 from actions.translate import Translate
 from actions.transcribe import Transcribe
 from actions.agents.langchain_code_agent import LangchainCodeAgent, LangchainCodeAgentInput
@@ -28,15 +27,15 @@ from shortcuts import super_key
 logger = logging.getLogger()
 
 actions = [
-    ExecutorAgent(shortcut=super_key | {keyboard.KeyCode.from_char("1")}),
     Transcribe(shortcut=super_key | {keyboard.KeyCode.from_char("2")}),
-    SimpleGPTActionWithInput(shortcut=super_key | {keyboard.KeyCode.from_char("3")}, whisper_mode="transcribe", model_name=Models.GPT4),
-    SimpleGPTActionWithInput(shortcut=super_key | {keyboard.KeyCode.from_char("4")}, whisper_mode="transcribe", model_name=Models.GPT3),
-    # BashAgentStartFolder(shortcut=super_key | {keyboard.KeyCode.from_char("4")}),
-    SimpleGPT4Action(shortcut=super_key | {keyboard.KeyCode.from_char("5")}),
-    CodeShortener(shortcut=super_key | {keyboard.KeyCode.from_char("6")}),
-    GoogleSearchReactAgent(shortcut=super_key | {keyboard.KeyCode.from_char("6")}),
-    GoogleSearchAgent(shortcut=super_key | {keyboard.KeyCode.from_char("7")}),
+    SimpleGPTActionWithInput(shortcut=super_key | {keyboard.KeyCode.from_char("3")}, whisper_mode="transcribe", model_name=Models.GPT3),
+    SimpleGPTActionWithInput(shortcut=super_key | {keyboard.KeyCode.from_char("4")}, whisper_mode="transcribe", model_name=Models.GPT4),
+    SimpleGPTAction(shortcut=super_key | {keyboard.KeyCode.from_char("5")}, model_name=Models.GPT3),
+    SimpleGPTAction(shortcut=super_key | {keyboard.KeyCode.from_char("6")}, model_name=Models.GPT4),
+    GoogleSearchReactAgent(shortcut=super_key | {keyboard.KeyCode.from_char("8")}),
+    SimpleGPTAction(shortcut=super_key | {keyboard.KeyCode.from_char("9")}, model_name=Models.GPT4, followup=True),
 ]
+
+
 
 print("Ready")
