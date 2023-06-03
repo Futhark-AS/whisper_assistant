@@ -60,14 +60,12 @@ class ExecutorAgent(BaseAction):
             name="python and bash executor no input",
             description="agent that runs python code or bash commands",
             action=None,
-            shortcut=super_key | {keyboard.KeyCode.from_char("-")},
+            shortcut=shortcut,
             config=config
         )
 
         def action(input_text):
-            bash.run("source ~/.zshrc")
-            bash.run("conda activate agents")
-            bash.run("rm temp123.py")
+            bash.run("./.venv/bin/activate")
             agent.run(input_text)
 
         self.action = action

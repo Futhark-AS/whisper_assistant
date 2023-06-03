@@ -2,10 +2,13 @@ from actions.BaseAction import BaseAction
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage, AIMessage
 import pyperclip
-from prompts import system_prompt_with_input, system_prompt_without_input
+from prompts import system_prompt_with_input, system_prompt_default
 from shortcuts import super_key
 from pynput import keyboard
 from enum import Enum
+from config import Config
+
+cfg = Config()
 
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
@@ -42,8 +45,6 @@ def simple_gpt_action(input_text, model_name = Models.GPT4, system_prompt=system
     return response.content
 
 class SimpleGPTActionWithInput(BaseAction):
-    model_name = Models.GPT3
-
     def __init__(self, shortcut, whisper_mode="transcribe", model_name: Models = Models.GPT3, followup=False):
         self.model_name = model_name
         self.followup = followup
@@ -73,7 +74,7 @@ class SimpleGPTAction(BaseAction):
     def __init__(self, shortcut, model_name: Models = Models.GPT4, followup=False):
         super().__init__(
             name="simple_gpt4_action",
-            action=lambda inp: simple_gpt_action(inp, model_name=model_name, followup=followup, system_prompt=system_prompt_without_input),
+            action=lambda inp: simple_gpt_action(inp, model_name=model_name, followup=followup, system_prompt=cfg.system_prompt),
             description="Simple GPT Action",
             shortcut=shortcut,
             config={

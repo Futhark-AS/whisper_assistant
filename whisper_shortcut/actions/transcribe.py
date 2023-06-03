@@ -2,7 +2,7 @@ from actions.BaseAction import BaseAction
 import pyperclip
 
 
-class Transcribe(BaseAction):
+class WhisperTranscribe(BaseAction):
     def __init__(self, shortcut):
         super().__init__(
             name="transcribe",

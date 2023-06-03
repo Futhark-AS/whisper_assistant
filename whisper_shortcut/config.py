@@ -5,6 +5,7 @@ import sounds
 from dotenv import load_dotenv
 import logging
 import sys
+from prompts import system_prompt_default
 # Load environment variables from .env file
 load_dotenv()
 
@@ -102,9 +103,15 @@ class Config(metaclass=Singleton):
         # Initialize the OpenAI API client
         openai.api_key = self.openai_api_key
 
+        self.system_prompt = system_prompt_default
+
     def set_debug(self, value: bool):
         self.debug = value
         setup_logging(self.log_file_name, self.debug)
+
+    # set system prompt
+    def set_system_prompt(self, value: str):
+        self.system_prompt = value
 
 
     def toggle_speak_mode(self):

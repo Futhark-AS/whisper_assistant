@@ -22,7 +22,7 @@ from prompts import (
     system_prompt_with_input,
     user_prompt_template,
     system_prompt_summarizer,
-    system_prompt_without_input,
+    system_prompt_default,
 )
 from actions_config import actions
 from actions.BaseAction import BaseAction
@@ -34,6 +34,7 @@ from langchain.agents import load_tools
 from langchain.agents import initialize_agent
 from langchain.agents import AgentType
 from langchain.llms import OpenAI
+import socket
 
 def set_ui_icon(state):
     global UI_STATE
@@ -62,6 +63,8 @@ GPT_COMPLETION_PRICE = 0.06
 AUDIO_FILE_NAME = "output.wav"
 RAW_AUDIO_FILE_NAME = "raw_output.wav"
 
+NOTIFICATION_SOUND = "/Users/skog/Documents/code/ai/agent-smith/whisper_shortcut/start_sound.wav"
+
 UI_TXT = {
     "idle": "🧠",
     "recording": "🎙️",
@@ -78,6 +81,8 @@ stop_action = False
 next_action = None
 
 rumps_app = None
+
+socket_set_next_query = None
 
 def upload(text, metadata):
     AUDIO_FILES_PATH = os.environ.get("AUDIO_FILES_PATH")
@@ -192,11 +197,50 @@ UI_STATE = {
     "mode": UI_TXT["idle"],
 }
 
-LAST_GPT_CONV = [{"role": "system", "content": system_prompt_without_input}]
+LAST_GPT_CONV = [{"role": "system", "content": cfg.system_prompt}]
 
 
+def handle_socket_connection(data):
+    global socket_set_next_query
+    data = json.loads(data)
+    action = data["action"]
+    value = data["value"]
+
+    if action == "sp": # Set system prompt
+        if value == "default":
+            cfg.system_prompt = system_prompt_default
+        else:
+            cfg.system_prompt = value
+
+    elif action == "query":
+        if value == "default":
+            socket_set_next_query = None
+        else:
+            socket_set_next_query = value
 
 
+def listen_for_connections(s):
+    while True:
+        c, addr = s.accept()
+        logger.info(f"Got connection from {addr}")
+        data = c.recv(1024)
+        logger.info(f"Received data: {data}")
+        handle_socket_connection(data)
+        c.close()
+
+def start_socket_listener():
+    # Create a socket object
+    s = socket.socket()
+    
+    # Bind to the port
+    s.bind(('', 5555))
+
+    # Now wait for client connection.
+    s.listen(5)
+
+    # Start a new thread to listen for connections
+    connection_thread = threading.Thread(target=listen_for_connections, args=(s,))
+    connection_thread.start()
 
 def main(rumps_app2=None):
     global rumps_app
@@ -204,6 +248,9 @@ def main(rumps_app2=None):
 
     set_ui_icon(UI_TXT["idle"])
     cfg.set_debug(False)
+
+    # start listening on socket
+    start_socket_listener()
 
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.start()
@@ -230,9 +277,12 @@ def thread_main():
     finally:
         processing_thread = None
 
-
 def run_action():
     global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action
+
+    # play sound
+    cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
+
     price = {}
 
     record_audio = next_action.config.get("record_input", True)
