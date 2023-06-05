@@ -213,11 +213,22 @@ def handle_socket_connection(data):
             cfg.system_prompt = value
 
     elif action == "query":
-        if value == "default":
+        if value == "reset":
             socket_set_next_query = None
         else:
             socket_set_next_query = value
 
+    elif action == "whisperprompt":
+        if value == "reset":
+            cfg.set_whisper_system_prompt("")
+        # if value starts with add, add to prompt
+        elif value.startswith("add"):
+            prev = cfg.whisper_system_prompt
+            cfg.set_whisper_system_prompt(prev + value[3:])
+        elif value.startswith("set"):
+            cfg.set_whisper_system_prompt(value[3:])
+
+        print("Whisper system prompt:", cfg.whisper_system_prompt)
 
 def listen_for_connections(s):
     while True:
@@ -303,7 +314,7 @@ def run_action():
 
         set_ui_icon(UI_TXT["transcribing"])
 
-        whisper_prompt = next_action.config.get("whisper_prompt", None)
+        whisper_prompt = cfg.whisper_system_prompt
 
         print("record_audio", record_audio)
 

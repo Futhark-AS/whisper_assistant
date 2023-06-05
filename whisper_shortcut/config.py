@@ -104,10 +104,14 @@ class Config(metaclass=Singleton):
         openai.api_key = self.openai_api_key
 
         self.system_prompt = system_prompt_default
+        self.whisper_system_prompt = ""
 
     def set_debug(self, value: bool):
         self.debug = value
         setup_logging(self.log_file_name, self.debug)
+
+    def set_whisper_system_prompt(self, value: str):
+        self.whisper_system_prompt = value
 
     # set system prompt
     def set_system_prompt(self, value: str):
