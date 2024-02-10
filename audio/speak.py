@@ -1,6 +1,6 @@
 import os
 import requests
-from config import Config
+from config.config import Config
 import gtts
 import logging
 

@@ -1,3 +1,5 @@
+from config.config import Config
+cfg = Config()
 from utils import print_price
 import os
 import pyaudio
@@ -10,30 +12,19 @@ from datetime import datetime
 import json
 from pydub import AudioSegment
 import traceback
-from shortcuts import hotkey_stop, hotkey_cancel
-from speak import say_text
-from config import Config
+from config.shortcuts import hotkey_stop, hotkey_cancel
+from audio.speak import say_text
 import logging
-from audio_processing import preprocess_audio, transcribe
+from audio.audio_processing import preprocess_audio, transcribe
 import shutil
-from langchain.callbacks import get_openai_callback 
-from langchain.chat_models import ChatOpenAI
-from prompts import (
-    system_prompt_with_input,
-    user_prompt_template,
-    system_prompt_summarizer,
+from langchain_community.callbacks import get_openai_callback 
+from prompts.prompts import (
     system_prompt_default,
 )
-from actions_config import actions
+from config.actions_config import actions
 from actions.BaseAction import BaseAction
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
 import pyperclip
 from pynput import keyboard
-from langchain.agents import load_tools
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
-from langchain.llms import OpenAI
 import socket
 
 def set_ui_icon(state):
@@ -53,7 +44,6 @@ def update_ui_state():
         rumps_app.title = title
 
 
-cfg = Config()
 logger = logging.getLogger()
 
 WHISPER_PRICE = 0.006
@@ -63,7 +53,7 @@ GPT_COMPLETION_PRICE = 0.06
 AUDIO_FILE_NAME = "output.wav"
 RAW_AUDIO_FILE_NAME = "raw_output.wav"
 
-NOTIFICATION_SOUND = "/Users/skog/Documents/code/ai/agent-smith/whisper_shortcut/start_sound.wav"
+# NOTIFICATION_SOUND = "../../../../audio/start_sound.wav"
 
 UI_TXT = {
     "idle": "🧠",
@@ -131,7 +121,12 @@ def start_recording():
 
     p = pyaudio.PyAudio()
 
+    # play sound
+    # cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
+
     stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+
+    # cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
 
     logger.info("start recording...")
     frames = []
@@ -291,8 +286,6 @@ def thread_main():
 def run_action():
     global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action
 
-    # play sound
-    cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
 
     price = {}
 

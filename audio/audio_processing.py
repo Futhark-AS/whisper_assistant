@@ -4,9 +4,10 @@ import shutil
 import traceback
 import wave
 
-import openai
+from openai import OpenAI
+
+client = OpenAI()
 import pyaudio
-from config import Config
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
@@ -46,18 +47,27 @@ def transcribe(audio_file_name, mode, whisper_prompt):
     audio_file = open(audio_file_name, "rb")
     logger.info("Transcribing audio...")
 
+
     if mode == "translate":
-        transcript = openai.Audio.translate("whisper-1", audio_file, {
-            "prompt": whisper_prompt or "",
-        })
+        transcript = client.audio.translations.create(
+            model="whisper-1", 
+            file=audio_file, 
+            response_format="text",
+            prompt=whisper_prompt or ""
+
+        )
     elif mode == "transcribe":
-        transcript = openai.Audio.transcribe("whisper-1", audio_file, {
-            "prompt": whisper_prompt or "",
-        })
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=audio_file, 
+            response_format="text",
+            prompt=whisper_prompt or ""
+        )
     else:
         logger.info("Invalid mode")
         return
 
-    logger.info(f"Transcribed result: {transcript.text}")
+
+    logger.info(f"Transcribed result: {transcript}")
     print(transcript)
-    return transcript.text
+    return transcript

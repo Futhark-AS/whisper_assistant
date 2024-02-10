@@ -2,11 +2,11 @@ from actions.BaseAction import BaseAction
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage, AIMessage
 import pyperclip
-from prompts import system_prompt_with_input, system_prompt_default
-from shortcuts import super_key
+from prompts.prompts import system_prompt_with_input, system_prompt_default
+from config.shortcuts import super_key
 from pynput import keyboard
 from enum import Enum
-from config import Config
+from config.config import Config
 
 cfg = Config()
 

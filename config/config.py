@@ -1,13 +1,13 @@
 import abc
 import os
 import openai
-import sounds
+from audio.sounds import AudioPlayer
 from dotenv import load_dotenv
 import logging
 import sys
-from prompts import system_prompt_default
+from prompts.prompts import system_prompt_default
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 
 class Singleton(abc.ABCMeta, type):
@@ -89,7 +89,7 @@ class Config(metaclass=Singleton):
         self.log_file_name = './logs.log'
         setup_logging(self.log_file_name, self.debug)
 
-        self.audioplayer = sounds.AudioPlayer()
+        self.audioplayer = AudioPlayer()
 
         self.audioplayer.set_playback_speed(1.3)
 
@@ -101,7 +101,6 @@ class Config(metaclass=Singleton):
 
         self.speak_mode = False
         # Initialize the OpenAI API client
-        openai.api_key = self.openai_api_key
 
         self.system_prompt = system_prompt_default
         self.whisper_system_prompt = ""

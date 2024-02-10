@@ -1,6 +1,9 @@
-**/media_results/*
-**/logs.log
-.DS_STORE
+*.log
+output.wav
+raw_output.wav
+.DS_Store
+shortcuts.py
+**/.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

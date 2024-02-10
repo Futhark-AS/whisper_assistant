@@ -1,10 +1,10 @@
 from langchain.utilities import BashProcess
 from langchain.chat_models import ChatOpenAI
 from langchain.agents import initialize_agent, Tool, AgentType
-from BaseAction import BaseAction
+from actions.BaseAction import BaseAction
 from langchain.chains import LLMBashChain
 
-from shortcuts import super_key
+from config.shortcuts import super_key
 from pynput import keyboard
 
 bash = BashProcess(persistent=True)
@@ -20,7 +20,7 @@ tools = [
 ]
 # agent = initialize_agent(tools, chat2, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
-from agent_template import custom_agent_executor
+from actions.agents.utils.agent_template import custom_agent_executor
 agent = custom_agent_executor(tools, chat2)
 
 # print(agent.agent.output_parser.get_format_instructions())
@@ -28,7 +28,7 @@ agent = custom_agent_executor(tools, chat2)
 
 
 class BashAgentStartFolder(BaseAction):
-    def __init__(self):
+    def __init__(self, shortcut):
         config = {
             "whisper_mode": "translate",
             "use_clipboard_input": True
@@ -38,7 +38,7 @@ class BashAgentStartFolder(BaseAction):
             name="bash",
             description="agent that runs bash commands",
             action=None,
-            shortcut=super_key | {keyboard.KeyCode.from_char("8")},
+            shortcut=shortcut,
             config=config
         )
 

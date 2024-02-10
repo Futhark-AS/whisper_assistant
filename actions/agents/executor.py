@@ -9,7 +9,7 @@ from actions.agents.utils.custom_repl import CustomREPL
 from langchain.tools.human.tool import HumanInputRun
 
 
-from shortcuts import super_key
+from config.shortcuts import super_key
 from pynput import keyboard
 
 bash = BashProcess(persistent=True)

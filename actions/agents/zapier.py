@@ -3,7 +3,7 @@ from langchain.agents import initialize_agent, Tool, AgentType
 from langchain.agents.agent_toolkits import ZapierToolkit
 from langchain.utilities.zapier import ZapierNLAWrapper
 from actions.BaseAction import BaseAction
-from shortcuts import super_key
+from config.shortcuts import super_key
 from pynput import keyboard
 from actions.agents.utils.agent_template import custom_agent_executor
 
