@@ -31,12 +31,22 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
    cd whisper_assistant
    ```
 
-2. **Setup the environment:**
+2. **Setup Conda Environment:**
+   (This is the recommended way to set up the environment, as there has been many problems with the py2app build when not using conda)
+   - Create a new conda environment:
+     ```bash
+     conda create -n whisper-assistant python=3.10
+     conda activate whisper-assistant
+     conda install pip
+     ```
 
-   - Create a `.env` file in the project root.
-   - Add your OpenAI API key: `OPEN_AI_API_KEY=your_api_key_here`.
+3. **Install Dependencies:**
 
-3. **Resolve Dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Resolve Dependencies:**
 
    - For Apple Silicon Mac users encountering `libffi` issues:
      ```bash
@@ -44,18 +54,24 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
      ```
      Follow the post-installation instructions from Homebrew to set up the necessary environment variables.
 
-4. **Configure Your Shortcut:**
+5. **Setup the environment:**
+
+   - Create a `.env` file in the project root.
+   - Add your OpenAI API key: `OPEN_AI_API_KEY=your_api_key_here`.
+
+
+6. **Configure Your Shortcut:**
 
    - Copy the `shortcuts.py.template` file from the `config` folder.
-   - Rename it to `shortcuts.py` and customize it with your preferred keyboard shortcut.
+   - Rename it to `shortcuts.py` and customize it with your preferred keyboard shortcut. Place this file in the `config` folder.
 
-5. **Build the Application:**
+7. **Build the Application:**
 
    ```bash
    python setup.py py2app -A
    ```
 
-6. **Run Whisper Assistant:**
+8. **Run Whisper Assistant:**
 
    ```bash
    ./dist/whisperGPT.app/Contents/MacOS/whisperGPT
