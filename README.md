@@ -71,11 +71,17 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
    python setup.py py2app -A
    ```
 
-8. **Run Whisper Assistant:**
+8. **Allow your terminal to monitor input and microphone:**
+
+   - If on Mac, go to `System Preferences` -> `Security & Privacy` -> `Privacy` -> `Accessibility`.
+   - Add your terminal to the list of apps.
+
+9. **Run Whisper Assistant:**
 
    ```bash
    ./dist/whisperGPT.app/Contents/MacOS/whisperGPT
    ```
+
 
 ## How to Use
 
