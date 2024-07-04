@@ -26,6 +26,9 @@ from actions.BaseAction import BaseAction
 import pyperclip
 from pynput import keyboard
 import socket
+import numpy as np
+import soundfile as sf
+from io import BytesIO
 
 def set_ui_icon(state):
     global UI_STATE
@@ -74,7 +77,7 @@ rumps_app = None
 
 socket_set_next_query = None
 
-def upload(text, metadata):
+def upload(text, metadata, processed_audio, sample_rate):
     AUDIO_FILES_PATH = os.environ.get("AUDIO_FILES_PATH")
 
     if AUDIO_FILES_PATH is None:
@@ -88,14 +91,9 @@ def upload(text, metadata):
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
-    # Copy the audio file to the new directory
+    # Save the processed audio to the new directory
     dest_path = os.path.join(new_directory, AUDIO_FILE_NAME)
-    shutil.copyfile(AUDIO_FILE_NAME, dest_path)
-
-    if cfg.preprocess_mode:
-        # Copy the raw audio file to the new directory
-        dest_path = os.path.join(new_directory, RAW_AUDIO_FILE_NAME)
-        shutil.copyfile(RAW_AUDIO_FILE_NAME, dest_path)
+    sf.write(dest_path, processed_audio, sample_rate)
 
     # Write the transcript to a text file in the new directory
     text_file_name = os.path.splitext(AUDIO_FILE_NAME)[0] + ".txt"
@@ -115,34 +113,26 @@ def upload(text, metadata):
 def start_recording():
     global recording
     CHUNK = 1024
-    FORMAT = pyaudio.paInt16
+    FORMAT = pyaudio.paFloat32
     CHANNELS = 1
-    RATE = 44100  # Maybe try 48000?
+    RATE = 44100
 
     p = pyaudio.PyAudio()
 
-    # play sound
-    # cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
-
     stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-
-    # cfg.audioplayer.play_audio_file(NOTIFICATION_SOUND)
 
     logger.info("start recording...")
     frames = []
     while recording:
         data = stream.read(CHUNK)
-        frames.append(data)
+        frames.append(np.frombuffer(data, dtype=np.float32))
     logger.info("recording stopped")
     stream.stop_stream()
     stream.close()
     p.terminate()
-    wf = wave.open(AUDIO_FILE_NAME, "wb")
-    wf.setnchannels(CHANNELS)
-    wf.setsampwidth(p.get_sample_size(FORMAT))
-    wf.setframerate(RATE)
-    wf.writeframes(b"".join(frames))
-    wf.close()
+
+    audio_data = np.concatenate(frames)
+    return audio_data, RATE
 
 
 def on_press(key):
@@ -263,12 +253,9 @@ def main(rumps_app2=None):
     listener.join()
 
 
-def get_whisper_price():
-    audio = AudioSegment.from_file(AUDIO_FILE_NAME)
-
-    duration_minutes = len(audio) / (1000 * 60)  # Convert duration from milliseconds to minutes
+def get_whisper_price(duration_seconds):
+    duration_minutes = duration_seconds / 60  # Convert seconds to minutes
     price = duration_minutes * WHISPER_PRICE
-
     return price
 
 
@@ -283,22 +270,38 @@ def thread_main():
     finally:
         processing_thread = None
 
+
+
+
+import time
+
 def run_action():
     global recording, processing_thread, stop_action, LAST_GPT_CONV, next_action
 
-
     price = {}
+    timings = {}
 
     record_audio = next_action.config.get("record_input", True)
 
     if record_audio:
         set_ui_icon(UI_TXT["recording"])
 
-        start_recording()
+        start_time = time.time()
+        audio_data, sample_rate = start_recording()
+        recording_time = time.time() - start_time
+        timings["recording"] = recording_time
 
         set_ui_icon(UI_TXT["processing"])
 
-        preprocess_audio(AUDIO_FILE_NAME, RAW_AUDIO_FILE_NAME)
+        start_time = time.time()
+        #processed_audio = preprocess_audio(audio_data, sample_rate)
+        processed_audio = audio_data # TODO: For now just use the original audio since preprocessing is not working and groq is super cheap
+        preprocessing_time = time.time() - start_time
+        timings["preprocessing"] = preprocessing_time
+
+        # Calculate lengths of original and processed audio
+        original_length = len(audio_data) / sample_rate
+        processed_length = len(processed_audio) / sample_rate
 
         if stop_action:
             stop_action = False
@@ -309,27 +312,41 @@ def run_action():
 
         whisper_prompt = cfg.whisper_system_prompt
 
-        print("record_audio", record_audio)
+        # Convert processed audio to bytes
+        audio_bytes = BytesIO()
+        sf.write(audio_bytes, processed_audio, sample_rate, format='wav')
+        audio_bytes.seek(0)
 
-        text = transcribe(AUDIO_FILE_NAME, next_action.config["whisper_mode"], whisper_prompt)
-        price["whisper"] = get_whisper_price()
+
+        start_time = time.time()
+        text = transcribe(audio_bytes, next_action.config["whisper_mode"], whisper_prompt)
+        transcription_time = time.time() - start_time
+        timings["transcription"] = transcription_time
+
+        price["whisper"] = get_whisper_price(processed_length)
         print_price(price)
+
+        logger.info(f"Timings: Recording: {timings['recording']:.2f}s, Preprocessing: {timings['preprocessing']:.2f}s, Transcription: {timings['transcription']:.2f}s")
+        logger.info(f"Audio lengths: Original: {original_length:.2f}s, Processed: {processed_length:.2f}s (Reduction: {(1 - processed_length/original_length)*100:.2f}%)")
 
         if cfg.save_mode:
             metadata = next_action.config
-            upload(text, json.dumps(metadata))
+            upload(text, json.dumps(metadata), processed_audio, sample_rate)
 
         set_ui_icon(UI_TXT["processing"])
 
     logger.info(f"Running agent {next_action.name}")
+    start_time = time.time()
 
     with get_openai_callback() as cb:
         next_action(text)
-    print(cb)
-    logger.info(f"Agent {next_action.name} finished")
+    agent_time = time.time() - start_time
+    timings["agent"] = agent_time
+
+    logger.info(f"Agent {next_action.name} finished in {agent_time:.2f}s")
+    logger.info(f"Total time: {sum(timings.values()):.2f}s")
 
     set_ui_icon(UI_TXT["idle"])
-
 
 if __name__ == "__main__":
     main()
