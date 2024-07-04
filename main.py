@@ -46,7 +46,7 @@ def update_ui_state():
 
 logger = logging.getLogger()
 
-WHISPER_PRICE = 0.006
+WHISPER_PRICE = 0.0005
 GPT_3_PRICE = 0.0005
 GPT_PROMPT_PRICE = 0.03
 GPT_COMPLETION_PRICE = 0.06

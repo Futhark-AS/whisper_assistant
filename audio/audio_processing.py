@@ -13,6 +13,36 @@ from pydub.silence import split_on_silence
 
 logger = logging.getLogger()
 
+
+from groq import Groq
+
+groq_client = Groq()
+
+
+
+
+# Start by making sure the `assemblyai` package is installed.
+# If not, you can install it by running the following command:
+# pip install -U assemblyai
+#
+# Note: Some macOS users may need to use `pip3` instead of `pip`.
+
+import assemblyai as aai
+
+# Replace with your API key
+aai.settings.api_key = "39f064c52ceb442fab3a1fcba76e2ccf"
+config_norwegian = aai.TranscriptionConfig(speech_model=aai.SpeechModel.nano, language_code="no")
+config_english = aai.TranscriptionConfig(speech_model=aai.SpeechModel.best, language_code="en")
+
+
+
+
+
+
+
+
+
+
 def preprocess_audio(audio_file_name, raw_audio_file_name, min_silence_len=1000, silence_thresh=-45, pause_between_chunks=200):
     # Load the audio file
     audio = AudioSegment.from_wav(audio_file_name)
@@ -44,30 +74,30 @@ def preprocess_audio(audio_file_name, raw_audio_file_name, min_silence_len=1000,
     output_audio.export(audio_file_name, format="wav")
 
 def transcribe(audio_file_name, mode, whisper_prompt):
-    audio_file = open(audio_file_name, "rb")
     logger.info("Transcribing audio...")
 
+    with open(audio_file_name, "rb") as audio_file:
+        if mode == "translate":
+            transcript = groq_client.audio.translations.create(
+                file=(os.path.basename(audio_file_name), audio_file.read()),
+                model="whisper-large-v3",
+                prompt=whisper_prompt or "",
+                response_format="json",
+                temperature=0.0
+            )
+        elif mode == "transcribe":
+            transcript = groq_client.audio.transcriptions.create(
+                file=(os.path.basename(audio_file_name), audio_file.read()),
+                model="whisper-large-v3",
+                prompt=whisper_prompt or "",
+                response_format="json",
+                temperature=0.0
+            )
+        else:
+            logger.info("Invalid mode")
+            return
 
-    if mode == "translate":
-        transcript = client.audio.translations.create(
-            model="whisper-1", 
-            file=audio_file, 
-            response_format="text",
-            prompt=whisper_prompt or ""
+    transcript_text = transcript.text
 
-        )
-    elif mode == "transcribe":
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=audio_file, 
-            response_format="text",
-            prompt=whisper_prompt or ""
-        )
-    else:
-        logger.info("Invalid mode")
-        return
-
-
-    logger.info(f"Transcribed result: {transcript}")
-    print(transcript)
-    return transcript
+    logger.info(f"Transcribed result: {transcript_text}")
+    return transcript_text

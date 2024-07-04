@@ -18,4 +18,5 @@ tiktoken==0.6.0
 tqdm==4.66.2
 langchain==0.1.6
 py2app==0.28.7
+groq
 
