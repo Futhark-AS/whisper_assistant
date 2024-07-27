@@ -101,7 +101,3 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 - OpenAI Whisper API for the speech-to-text engine.
 - LangChain framework for enabling complex command executions.
-
----
-
-This draft aims to cover the essential aspects of your project in a structured and reader-friendly manner. Feel free to customize the content to better fit your project's personality or add any additional sections you deem necessary, such as a 'Known Issues' or 'Future Work' section to outline ongoing development or potential enhancements.
