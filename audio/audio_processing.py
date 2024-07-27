@@ -41,7 +41,6 @@ import io
 
 import logging
 import numpy as np
-from pyAudioAnalysis import audioSegmentation
 
 logger = logging.getLogger(__name__)
 
