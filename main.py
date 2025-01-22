@@ -1,29 +1,22 @@
 from config.config import Config
+from config.env import initialize_env
+initialize_env()
 cfg = Config()
 from utils import print_price
 import os
 import pyaudio
-import wave
-import openai
-import pyperclip
 from pynput import keyboard
 import threading
 from datetime import datetime
 import json
-from pydub import AudioSegment
 import traceback
 from config.shortcuts import hotkey_stop, hotkey_cancel
-from audio.speak import say_text
 import logging
-from audio.audio_processing import preprocess_audio, transcribe
-import shutil
-from langchain_community.callbacks import get_openai_callback 
+from audio.audio_processing import transcribe
 from prompts.prompts import (
     system_prompt_default,
 )
 from config.actions_config import actions
-from actions.BaseAction import BaseAction
-import pyperclip
 from pynput import keyboard
 import socket
 import numpy as np
@@ -123,13 +116,17 @@ def start_recording():
 
     logger.info("start recording...")
     frames = []
-    while recording:
-        data = stream.read(CHUNK)
-        frames.append(np.frombuffer(data, dtype=np.float32))
-    logger.info("recording stopped")
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+    try:    
+        while recording:
+            data = stream.read(CHUNK)
+            frames.append(np.frombuffer(data, dtype=np.float32))
+    except Exception as e:
+        logger.error(f"Error recording audio: {e}")
+    finally:
+        logger.info("recording stopped")
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
 
     audio_data = np.concatenate(frames)
     return audio_data, RATE
@@ -338,8 +335,8 @@ def run_action():
     logger.info(f"Running agent {next_action.name}")
     start_time = time.time()
 
-    with get_openai_callback() as cb:
-        next_action(text)
+    next_action(text)
+
     agent_time = time.time() - start_time
     timings["agent"] = agent_time
 

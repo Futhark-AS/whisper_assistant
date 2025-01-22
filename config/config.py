@@ -1,13 +1,9 @@
 import abc
 import os
-import openai
 from audio.sounds import AudioPlayer
-from dotenv import load_dotenv
 import logging
 import sys
 from prompts.prompts import system_prompt_default
-# Load environment variables from .env file
-load_dotenv(override=True)
 
 
 class Singleton(abc.ABCMeta, type):
@@ -24,21 +20,21 @@ class Singleton(abc.ABCMeta, type):
                 *args, **kwargs)
         return cls._instances[cls]
 
-def get_elevenlabs_api_keys():
-    """
-    Dynamically set the number of API keys based on how many exist in the .env file
-    """
-    keys = []
-    index = 0
-    while True:
-        key_name = f"ELEVENLABS_API_KEY{index}"
-        api_key = os.getenv(key_name)
-        if api_key is not None:
-            keys.append(api_key)
-            index += 1
-        else:
-            break
-    return keys
+# def get_elevenlabs_api_keys():
+#     """
+#     Dynamically set the number of API keys based on how many exist in the .env file
+#     """
+#     keys = []
+#     index = 0
+#     while True:
+#         key_name = f"ELEVENLABS_API_KEY{index}"
+#         api_key = os.getenv(key_name)
+#         if api_key is not None:
+#             keys.append(api_key)
+#             index += 1
+#         else:
+#             break
+#     return keys
 
 import logging
 
@@ -94,8 +90,7 @@ class Config(metaclass=Singleton):
         self.audioplayer.set_playback_speed(1.3)
 
         # Dynamically set the number of API keys based on how many exist in the .env file
-        self.elevenlabs_api_keys = get_elevenlabs_api_keys()
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        #self.elevenlabs_api_keys = get_elevenlabs_api_keys()
 
         self.gpt_model = "gpt-4"
 
