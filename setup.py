@@ -71,7 +71,7 @@ setup(
         'langsmith',
         'numpy',
         'openai',
-        'playsound',
+        #'playsound',
         'pooch',
         'PyAudio',
         'pycparser',

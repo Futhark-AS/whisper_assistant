@@ -90,11 +90,12 @@ def transcribe(audio_file, mode, whisper_prompt):
     audio_file.name = "audio.wav"  # Give a name to the file-like object
 
     if mode == "translate":
-        transcript = groq_client.audio.translations.create(
+        transcript = groq_client.audio.transcriptions.create(
             file=("audio.wav", audio_file),
             model="whisper-large-v3",
             prompt=whisper_prompt or "",
             response_format="json",
+            language="en",
             temperature=0.0
         )
     elif mode == "transcribe":

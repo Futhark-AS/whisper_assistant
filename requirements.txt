@@ -1,3 +1,4 @@
+#playsound
 assemblyai
 groq
 langchain
@@ -8,7 +9,6 @@ langchain-openai
 langsmith
 numpy
 openai
-playsound
 pooch
 py2app
 PyAudio
@@ -26,3 +26,4 @@ simpleaudio
 tiktoken
 tqdm
 rumps
+python-dotenv
