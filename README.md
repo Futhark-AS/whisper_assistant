@@ -1,102 +1,64 @@
-*Made by Jørgen Kristiansen Sandhaug and Henrik Skog*
+# Whisper Assistant
 
-# Whisper Assistant: A Voice-Powered Assistant and Transcriber
+A lightweight, globally accessible voice-to-text tool powered by Groq's fast inference API.
 
-
-Whisper Assistant is a highly efficient and customizable voice-powered assistant designed to boost your productivity by seamlessly converting speech to text and performing a variety of tasks through voice commands. Built on the cutting-edge OpenAI Whisper API and the flexible LangChain framework, Whisper Assistant offers an easy-to-use interface for real-time voice transcription. It is also possible to integrate with large language models to execute complex tasks in a voice conversation fashion by creating custom agents in LangChain.
- 
+Whisper Assistant sits in the background and listens for your custom hotkey. When triggered, it records your voice, transcribes it using the Groq API (Whisper model), and automatically copies the text to your clipboard.
 
 ## Features
 
-- **Highly Accurate Voice Transcription:** Utilizes the OpenAI Whisper API for the most accurate, real-time speech-to-text conversion for any language.
-- **Customizable Shortcuts:** Easily set up your own keyboard shortcuts to activate the transcription feature or start talking to different assistants, making it effortlessly accessible anytime.
-- **Versatile Voice Commands:** Execute tasks, manipulate text, or control your terminal directly with your voice using the LangChain framework.
-- **Optimized for Efficiency:** Smartly stitches together audio segments to minimize costs, reduce transcription time, and improve accuracy, even in speech with gaps.
-- **Designed for macOS:** Tailored for use on Apple Silicon Macs, ensuring smooth operation and compatibility.
+- 🚀 **Blazing Fast Transcription**: Uses Groq's API for near-instant speech-to-text.
+- ⌨️ **Global Hotkeys**: Toggle recording or retry transcription from anywhere in your OS.
+- 📋 **Clipboard Integration**: Transcribed text is automatically copied to your clipboard.
+- ⚙️ **Simple Configuration**: Easy setup via environment variables.
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
+- Python 3.10+
+- [uv](https://github.com/astral-sh/uv) package manager
+- A [Groq API Key](https://console.groq.com/)
 
-- Python 3.10 (or earlier possibly earlier) (cchardet does not seem to work well with Python 3.11 on Apple Silicon Macs).
-- [UV package manager](https://github.com/astral-sh/uv) installed
-- An OpenAI API key for using the Whisper API.
+## Installation
 
-### Installation
-
-1. **Clone the repository:**
-
+1. **Clone the repository**
    ```bash
    git clone https://github.com/Futhark-AS/whisper_assistant.git
    cd whisper_assistant
    ```
 
-2. **Install UV** (if not already installed):
-
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-3. **Install Dependencies:**
-
+2. **Install dependencies**
    ```bash
    uv sync
    ```
 
-   This will create a virtual environment and install all dependencies specified in `pyproject.toml`.
-
-4. **Resolve Dependencies:**
-
-   - For Apple Silicon Mac users encountering `libffi` issues:
-     ```bash
-     brew install libffi
-     ```
-     Follow the post-installation instructions from Homebrew to set up the necessary environment variables.
-
-5. **Setup the environment:**
-
-   - Create a `.env` file in the project root.
-   - Add your OpenAI API key: `OPEN_AI_API_KEY=your_api_key_here`.
-
-
-6. **Configure Your Shortcut:**
-
-   - Copy the `shortcuts.py.template` file from the `config` folder.
-   - Rename it to `shortcuts.py` and customize it with your preferred keyboard shortcut. Place this file in the `config` folder.
-
-7. **Allow your terminal to monitor input and microphone:**
-
-   - If on Mac, go to `System Preferences` -> `Security & Privacy` -> `Privacy` -> `Accessibility`.
-   - Add your terminal to the list of apps.
-
-8. **Run Whisper Assistant:**
-
+   *Note for macOS users: If you encounter issues installing PyAudio, you may need to install portaudio:*
    ```bash
-   uv run python main.py
+   brew install portaudio
    ```
 
-   Or activate the virtual environment first:
+3. **Configure Environment**
+   Create a `.env` file in the project root:
    ```bash
-   source .venv/bin/activate
-   python main.py
+   cp .env.example .env
    ```
 
+   Edit `.env` with your settings
 
-## How to Use
+## Usage
 
-- Press one of your configured shortcuts to start recording.
-- Whisper Assistant will transcribe your speech and copy the text to your clipboard
-- If the shortcut you pressed is for an action/assistant, the will run with the transcribed text as input.
+Start the application:
+
+```bash
+uv run src/main.py
+```
+
+The application will run in the terminal. Use your configured hotkeys:
+- **Toggle Recording**: Press your hotkey (e.g., `cmd+option+space`) to start recording. Press again to stop.
+- **Retry Transcription**: Press your retry hotkey to re-transcribe the last recorded audio.
 
 ## Contributing
 
-We welcome contributions and suggestions! Feel free to fork the repository, make your changes, and submit a pull request. For major changes or questions, please open an issue first to discuss what you would like to change.
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## Acknowledgments
-
-- OpenAI Whisper API for the speech-to-text engine.
-- LangChain framework for enabling complex command executions.
+[MIT](LICENSE)
