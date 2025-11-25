@@ -1,7 +1,5 @@
 import logging
 import threading
-import os
-import sys
 from pathlib import Path
 from datetime import datetime
 import config
@@ -9,6 +7,7 @@ import log_config  # Import logging configuration
 from packages.audio_recorder import AudioRecorder
 from packages.transcriber import Transcriber
 from packages.keyboard_listener import KeyboardListener
+from packages.notifications import Notifier
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,7 @@ class WhisperApp:
         self.recorder = AudioRecorder()
         self.transcriber = Transcriber()
         self.keyboard_listener = KeyboardListener()
+        self.notifier = Notifier()
         self.last_audio_file = None
 
     def stop_recording(self):
@@ -94,6 +94,8 @@ class WhisperApp:
                 self._print_and_copy_transcription(text)
                 # Save transcription to file
                 self._save_transcription(audio_file_path, text)
+                # Notify user that transcription is complete
+                self.notifier.notify_completion()
             else:
                 logger.info("Transcription returned empty result")
 

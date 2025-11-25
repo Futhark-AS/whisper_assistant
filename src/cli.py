@@ -45,13 +45,12 @@ def cli():
     pass
 
 
-@cli.command()
-def start():
-    """Start the Whisper Assistant daemon."""
+def _start_daemon():
+    """Internal function to start the daemon. Returns True on success, False on failure."""
     if is_running():
         pid = get_pid()
         click.echo(f"Whisper Assistant is already running (PID: {pid})")
-        sys.exit(1)
+        return False
 
     # Get the path to the main.py script
     # Assuming cli.py is in src/, main.py is also in src/
@@ -71,22 +70,22 @@ def start():
         # Write PID file
         PID_FILE.write_text(str(process.pid))
         click.echo(f"Whisper Assistant started (PID: {process.pid})")
+        return True
     except Exception as e:
         click.echo(f"Failed to start Whisper Assistant: {e}", err=True)
-        sys.exit(1)
+        return False
 
 
-@cli.command()
-def stop():
-    """Stop the Whisper Assistant daemon."""
+def _stop_daemon():
+    """Internal function to stop the daemon. Returns True on success, False on failure."""
     if not is_running():
         click.echo("Whisper Assistant is not running")
-        sys.exit(1)
+        return False
 
     pid = get_pid()
     if pid is None:
         click.echo("Could not read PID file")
-        sys.exit(1)
+        return False
 
     try:
         # Send SIGINT to trigger graceful shutdown
@@ -103,11 +102,37 @@ def stop():
         # Clean up PID file
         PID_FILE.unlink(missing_ok=True)
         click.echo("Whisper Assistant stopped")
+        return True
     except ProcessLookupError:
         click.echo("Process not found, cleaning up PID file")
         PID_FILE.unlink(missing_ok=True)
+        return True
     except Exception as e:
         click.echo(f"Failed to stop Whisper Assistant: {e}", err=True)
+        return False
+
+
+@cli.command()
+def start():
+    """Start the Whisper Assistant daemon."""
+    if not _start_daemon():
+        sys.exit(1)
+
+
+@cli.command()
+def stop():
+    """Stop the Whisper Assistant daemon."""
+    if not _stop_daemon():
+        sys.exit(1)
+
+
+@cli.command()
+def restart():
+    """Restart the Whisper Assistant daemon."""
+    _stop_daemon()
+    # Small delay to ensure clean shutdown
+    time.sleep(0.5)
+    if not _start_daemon():
         sys.exit(1)
 
 
@@ -148,9 +173,9 @@ def list():
             [d for d in date_dir.iterdir() if d.is_dir()], reverse=True
         )
         for timestamp_dir in timestamp_dirs:
-            transcription_file = timestamp_dir / "transcription.txt"
-            has_transcription = transcription_file.exists()
-            status = "✓" if has_transcription else "✗"
+            # transcription_file = timestamp_dir / "transcription.txt"
+            # has_transcription = transcription_file.exists()
+            # status = "✓" if has_transcription else "✗"
             # Output in YYYY-MM-DD-HHMMSS format for easy copy-paste
             datetime_str = f"{date_dir.name}-{timestamp_dir.name}"
             click.echo(datetime_str)
