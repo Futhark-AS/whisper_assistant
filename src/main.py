@@ -74,6 +74,9 @@ class WhisperApp:
         # Audio file path: history/YYYY-MM-DD/HHMMSS/recording.wav
         audio_path = entry_dir / "recording.wav"
 
+        # Notify user that recording is starting
+        self.notifier.notify_recording_start()
+
         # This blocks until stop_recording() is called
         file_path = self.recorder.start_recording(output_path=str(audio_path))
 
