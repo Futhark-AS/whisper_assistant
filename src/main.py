@@ -2,7 +2,7 @@ import logging
 import threading
 from pathlib import Path
 from datetime import datetime
-import config
+from env import read_env
 import log_config  # Import logging configuration
 from packages.audio_recorder import AudioRecorder
 from packages.transcriber import Transcriber
@@ -24,6 +24,7 @@ class WhisperApp:
         self.keyboard_listener = KeyboardListener()
         self.notifier = Notifier()
         self.last_audio_file = None
+        self.env = read_env()
 
     def stop_recording(self):
         """Stop the current recording."""
@@ -47,7 +48,9 @@ class WhisperApp:
         """Callback for retry transcription hotkey."""
         if self.last_audio_file:
             logger.info(f"Retrying transcription of: {self.last_audio_file}")
-            self.transcribe_file(self.last_audio_file)
+            self.transcribe_file(
+                self.last_audio_file, language=self.env.TRANSCRIPTION_LANGUAGE
+            )
         else:
             logger.warning("No previous audio file to retry transcription")
 
@@ -82,16 +85,14 @@ class WhisperApp:
 
         if file_path:
             self.last_audio_file = file_path
-            self.transcribe_file(file_path)
+            self.transcribe_file(file_path, language=self.env.TRANSCRIPTION_LANGUAGE)
         else:
             logger.error("Recording completed but no file path was returned")
 
-    def transcribe_file(self, audio_file_path):
+    def transcribe_file(self, audio_file_path, language):
         """Transcribe audio file and output the result."""
         try:
-            text = self.transcriber.transcribe(
-                audio_file_path, language=config.TRANSCRIPTION_LANGUAGE
-            )
+            text = self.transcriber.transcribe(audio_file_path, language=language)
 
             if text:
                 self._print_and_copy_transcription(text)
@@ -135,15 +136,14 @@ class WhisperApp:
     def run(self):
         """Start the application."""
         logger.info("Starting Whisper Assistant...")
-        logger.info(f"Press {config.TOGGLE_RECORDING_HOTKEY} to toggle recording")
-        logger.info(f"Press {config.RETRY_TRANSCRIPTION_HOTKEY} to retry transcription")
+        logger.info(f"Config: {self.env.__dict__}")
 
         # Register hotkeys
         self.keyboard_listener.register_hotkey(
-            config.TOGGLE_RECORDING_HOTKEY, self.toggle_recording
+            self.env.TOGGLE_RECORDING_HOTKEY, self.toggle_recording
         )
         self.keyboard_listener.register_hotkey(
-            config.RETRY_TRANSCRIPTION_HOTKEY, self.retry_transcription
+            self.env.RETRY_TRANSCRIPTION_HOTKEY, self.retry_transcription
         )
 
         # Start listener and block main thread

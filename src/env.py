@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 import logging
 from typing import Set, Union, Optional
 from pynput import keyboard
@@ -47,17 +48,40 @@ def _parse_hotkey(
     return keys
 
 
-# Load environment variables from .env file
-load_dotenv()
+@dataclass
+class Env:
+    GROQ_API_KEY: Optional[str]
+    TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
+    RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
+    TRANSCRIPTION_LANGUAGE: Optional[str]
 
-GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY is not set")
+    def __str__(self):
+        return (
+            f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
+            f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
+            f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
+            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE}"
+        )
 
-TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = _parse_hotkey(
-    os.getenv("TOGGLE_RECORDING_HOTKEY")
-)
-RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = _parse_hotkey(
-    os.getenv("RETRY_TRANSCRIPTION_HOTKEY")
-)
-TRANSCRIPTION_LANGUAGE: Optional[str] = os.getenv("TRANSCRIPTION_LANGUAGE")
+
+def read_env():
+    load_dotenv()
+
+    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY is not set")
+
+    TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = _parse_hotkey(
+        os.getenv("TOGGLE_RECORDING_HOTKEY")
+    )
+    RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = (
+        _parse_hotkey(os.getenv("RETRY_TRANSCRIPTION_HOTKEY"))
+    )
+    TRANSCRIPTION_LANGUAGE: Optional[str] = os.getenv("TRANSCRIPTION_LANGUAGE")
+
+    return Env(
+        GROQ_API_KEY,
+        TOGGLE_RECORDING_HOTKEY,
+        RETRY_TRANSCRIPTION_HOTKEY,
+        TRANSCRIPTION_LANGUAGE,
+    )
