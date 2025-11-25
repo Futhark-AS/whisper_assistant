@@ -146,61 +146,19 @@ def status():
         click.echo("Whisper Assistant is not running")
 
 
-@cli.group()
-def history():
-    """Manage recorded history."""
-    pass
-
-
-@history.command()
-def list():
-    """List recorded history."""
-    if not HISTORY_DIR.exists():
-        click.echo("No history found")
-        return
-
-    # List all date directories
-    date_dirs = sorted([d for d in HISTORY_DIR.iterdir() if d.is_dir()], reverse=True)
-
-    if not date_dirs:
-        click.echo("No recordings found")
-        return
-
-    for date_dir in date_dirs:
-        click.echo("")
-        # List timestamp directories in this date directory
-        timestamp_dirs = sorted(
-            [d for d in date_dir.iterdir() if d.is_dir()], reverse=True
-        )
-        for timestamp_dir in timestamp_dirs:
-            # transcription_file = timestamp_dir / "transcription.txt"
-            # has_transcription = transcription_file.exists()
-            # status = "✓" if has_transcription else "✗"
-            # Output in YYYY-MM-DD-HHMMSS format for easy copy-paste
-            datetime_str = f"{date_dir.name}-{timestamp_dir.name}"
-            click.echo(datetime_str)
-
-
-@history.command()
-@click.argument("datetime")
-def transcribe(datetime):
-    """Transcribe a specific recording by datetime (YYYY-MM-DD-HHMMSS)."""
-    # Parse datetime format: YYYY-MM-DD-HHMMSS
-    # Split on last hyphen to separate date from time
-    parts = datetime.rsplit("-", 1)
-    if len(parts) != 2:
-        click.echo(
-            f"Invalid datetime format. Expected YYYY-MM-DD-HHMMSS, got: {datetime}",
-            err=True,
-        )
-        sys.exit(1)
-
-    date, time = parts
-    # Construct path: history/YYYY-MM-DD/HHMMSS/recording.wav
-    audio_path = HISTORY_DIR / date / time / "recording.wav"
+@cli.command()
+@click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
+def transcribe(audio_file):
+    """Transcribe an audio file. Can be any audio file on your system."""
+    # Resolve to absolute path
+    audio_path = Path(audio_file).resolve()
 
     if not audio_path.exists():
-        click.echo(f"Recording not found: {audio_path}", err=True)
+        click.echo(f"Audio file not found: {audio_path}", err=True)
+        sys.exit(1)
+
+    if not audio_path.is_file():
+        click.echo(f"Path is not a file: {audio_path}", err=True)
         sys.exit(1)
 
     click.echo(f"Transcribing {audio_path}...")
@@ -226,6 +184,39 @@ def transcribe(datetime):
     except Exception as e:
         click.echo(f"Error during transcription: {e}", err=True)
         sys.exit(1)
+
+
+@cli.group()
+def history():
+    """Manage recorded history."""
+    pass
+
+
+@history.command()
+def list():
+    """List recorded history."""
+    if not HISTORY_DIR.exists():
+        click.echo("No history found")
+        return
+
+    # List all date directories
+    date_dirs = sorted([d for d in HISTORY_DIR.iterdir() if d.is_dir()], reverse=True)
+
+    if not date_dirs:
+        click.echo("No recordings found")
+        return
+
+    for date_dir in date_dirs:
+        # List timestamp directories in this date directory
+        timestamp_dirs = sorted(
+            [d for d in date_dir.iterdir() if d.is_dir()], reverse=True
+        )
+        for timestamp_dir in timestamp_dirs:
+            # Output full path to recording.wav file
+            audio_path = timestamp_dir / "recording.wav"
+            if audio_path.exists():
+                # Use absolute path for easy copy-paste
+                click.echo(str(audio_path.resolve()))
 
 
 if __name__ == "__main__":
