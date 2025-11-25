@@ -12,7 +12,6 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
 - **Customizable Shortcuts:** Easily set up your own keyboard shortcuts to activate the transcription feature or start talking to different assistants, making it effortlessly accessible anytime.
 - **Versatile Voice Commands:** Execute tasks, manipulate text, or control your terminal directly with your voice using the LangChain framework.
 - **Optimized for Efficiency:** Smartly stitches together audio segments to minimize costs, reduce transcription time, and improve accuracy, even in speech with gaps.
-- **Visual Feedback:** A status icon in the menu bar shows the app's current state—whether it's recording, processing, or ready for your next command.
 - **Designed for macOS:** Tailored for use on Apple Silicon Macs, ensuring smooth operation and compatibility.
 
 ## Getting Started
@@ -20,6 +19,7 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
 ### Prerequisites
 
 - Python 3.10 (or earlier possibly earlier) (cchardet does not seem to work well with Python 3.11 on Apple Silicon Macs).
+- [UV package manager](https://github.com/astral-sh/uv) installed
 - An OpenAI API key for using the Whisper API.
 
 ### Installation
@@ -31,20 +31,19 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
    cd whisper_assistant
    ```
 
-2. **Setup Conda Environment:**
-   (This is the recommended way to set up the environment, as there has been many problems with the py2app build when not using conda)
-   - Create a new conda environment:
-     ```bash
-     conda create -n whisper-assistant python=3.10
-     conda activate whisper-assistant
-     conda install pip
-     ```
+2. **Install UV** (if not already installed):
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
 
 3. **Install Dependencies:**
 
    ```bash
-   pip install -r requirements.txt
+   uv sync
    ```
+
+   This will create a virtual environment and install all dependencies specified in `pyproject.toml`.
 
 4. **Resolve Dependencies:**
 
@@ -65,21 +64,21 @@ Whisper Assistant is a highly efficient and customizable voice-powered assistant
    - Copy the `shortcuts.py.template` file from the `config` folder.
    - Rename it to `shortcuts.py` and customize it with your preferred keyboard shortcut. Place this file in the `config` folder.
 
-7. **Build the Application:**
-
-   ```bash
-   python setup.py py2app -A
-   ```
-
-8. **Allow your terminal to monitor input and microphone:**
+7. **Allow your terminal to monitor input and microphone:**
 
    - If on Mac, go to `System Preferences` -> `Security & Privacy` -> `Privacy` -> `Accessibility`.
    - Add your terminal to the list of apps.
 
-9. **Run Whisper Assistant:**
+8. **Run Whisper Assistant:**
 
    ```bash
-   ./dist/whisperGPT.app/Contents/MacOS/whisperGPT
+   uv run python main.py
+   ```
+
+   Or activate the virtual environment first:
+   ```bash
+   source .venv/bin/activate
+   python main.py
    ```
 
 
