@@ -61,5 +61,3 @@ RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = _parse_
     os.getenv("RETRY_TRANSCRIPTION_HOTKEY")
 )
 TRANSCRIPTION_LANGUAGE: Optional[str] = os.getenv("TRANSCRIPTION_LANGUAGE")
-
-PERSIST_ONLY_LATEST: bool = os.getenv("PERSIST_ONLY_LATEST", "false").lower() == "true"

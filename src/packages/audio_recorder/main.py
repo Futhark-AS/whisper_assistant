@@ -31,10 +31,13 @@ class AudioRecorder:
         self.CHANNELS = 1
         self.RATE = 44100
 
-    def start_recording(self):
+    def start_recording(self, output_path=None):
         """
         Start recording audio. Blocks until stop_recording() is called.
         Saves to a file when stopped.
+
+        Args:
+            output_path: Optional full path to save the recording. If None, generates a filename.
 
         Returns:
             str: Path to the saved audio file, or None if error
@@ -90,49 +93,22 @@ class AudioRecorder:
 
         audio_data = np.concatenate(self.frames)
 
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"recording_{timestamp}.wav"
-        filepath = os.path.join(self.output_dir, filename)
+        # Use provided output_path or generate filename
+        if output_path:
+            filepath = output_path
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        else:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"recording_{timestamp}.wav"
+            filepath = os.path.join(self.output_dir, filename)
 
         # Save to file
         sf.write(filepath, audio_data, self.RATE)
         logger.debug(f"Audio saved to {filepath}")
 
         return filepath
-
-    def cleanup_old_recordings(self, keep_filepath: str):
-        """
-        Delete all recording files except the one specified.
-
-        Args:
-            keep_filepath: Path to the file to keep (all others will be deleted)
-        """
-        try:
-            # Find all recording files matching the pattern
-            pattern = os.path.join(self.output_dir, "recording_*.wav")
-            recording_files = glob.glob(pattern)
-
-            # Filter out the file we want to keep
-            files_to_delete = [
-                f
-                for f in recording_files
-                if os.path.abspath(f) != os.path.abspath(keep_filepath)
-            ]
-
-            # Delete old recordings
-            for file_path in files_to_delete:
-                try:
-                    os.remove(file_path)
-                    logger.debug(f"Deleted old recording: {file_path}")
-                except OSError as e:
-                    logger.debug(f"Failed to delete {file_path}: {e}")
-
-            if files_to_delete:
-                logger.debug(f"Cleaned up {len(files_to_delete)} old recording(s)")
-
-        except Exception as e:
-            logger.error(f"Error during cleanup of old recordings: {e}", exc_info=True)
 
     def stop_recording(self):
         """

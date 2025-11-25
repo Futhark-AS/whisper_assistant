@@ -1,5 +1,9 @@
 import logging
 import threading
+import os
+import sys
+from pathlib import Path
+from datetime import datetime
 import config
 import log_config  # Import logging configuration
 from packages.audio_recorder import AudioRecorder
@@ -7,6 +11,8 @@ from packages.transcriber import Transcriber
 from packages.keyboard_listener import KeyboardListener
 
 logger = logging.getLogger(__name__)
+
+HISTORY_DIR = Path("history")
 
 
 class WhisperApp:
@@ -45,19 +51,33 @@ class WhisperApp:
         else:
             logger.warning("No previous audio file to retry transcription")
 
+    def _get_today_history_dir(self):
+        """Get or create today's history directory."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        history_path = HISTORY_DIR / today
+        history_path.mkdir(parents=True, exist_ok=True)
+        return history_path
+
     def _recording_flow(self):
         """
         Handles the recording process: record -> save -> transcribe.
         This runs in a separate thread.
         """
+        # Get today's history directory
+        history_dir = self._get_today_history_dir()
+
+        # Generate timestamp folder name (HHMMSS format, no separators)
+        timestamp = datetime.now().strftime("%H%M%S")
+        entry_dir = history_dir / timestamp
+        entry_dir.mkdir(parents=True, exist_ok=True)
+
+        # Audio file path: history/YYYY-MM-DD/HHMMSS/recording.wav
+        audio_path = entry_dir / "recording.wav"
+
         # This blocks until stop_recording() is called
-        file_path = self.recorder.start_recording()
+        file_path = self.recorder.start_recording(output_path=str(audio_path))
 
         if file_path:
-            # Cleanup old recordings if configured
-            if config.PERSIST_ONLY_LATEST:
-                self.recorder.cleanup_old_recordings(file_path)
-
             self.last_audio_file = file_path
             self.transcribe_file(file_path)
         else:
@@ -72,11 +92,25 @@ class WhisperApp:
 
             if text:
                 self._print_and_copy_transcription(text)
+                # Save transcription to file
+                self._save_transcription(audio_file_path, text)
             else:
                 logger.info("Transcription returned empty result")
 
         except Exception as e:
             logger.error(f"Error during transcription: {e}", exc_info=True)
+
+    def _save_transcription(self, audio_file_path, text):
+        """Save transcription text to a file alongside the audio file."""
+        try:
+            # Save as transcription.txt in the same directory as recording.wav
+            audio_path = Path(audio_file_path)
+            transcription_path = audio_path.parent / "transcription.txt"
+            with open(transcription_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            logger.debug(f"Transcription saved to {transcription_path}")
+        except Exception as e:
+            logger.error(f"Error saving transcription: {e}", exc_info=True)
 
     def _print_and_copy_transcription(self, text):
         """Helper to print transcription and copy to clipboard."""
@@ -122,11 +156,6 @@ class WhisperApp:
         self.keyboard_listener.stop()
 
 
-def main():
-    """Entry point."""
+if __name__ == "__main__":
     app = WhisperApp()
     app.run()
-
-
-if __name__ == "__main__":
-    main()

@@ -10,6 +10,7 @@ Whisper Assistant sits in the background and listens for your custom hotkey. Whe
 - ⌨️ **Global Hotkeys**: Toggle recording or retry transcription from anywhere in your OS.
 - 📋 **Clipboard Integration**: Transcribed text is automatically copied to your clipboard.
 - ⚙️ **Simple Configuration**: Easy setup via environment variables.
+- 🖥️ **Flexible Usage**: Run interactively in the terminal or as a background daemon.
 
 ## Prerequisites
 
@@ -45,14 +46,67 @@ Whisper Assistant sits in the background and listens for your custom hotkey. Whe
 
 ## Usage
 
-Start the application:
+You can run the assistant in two modes: **Foreground** (Interactive) or **Daemon** (Background).
+
+### Foreground Mode
+
+Run the assistant directly in your terminal. This is useful for debugging or if you prefer to see logs in real-time. The process will stop when you close the terminal.
 
 ```bash
 uv run src/main.py
 ```
 
-The application will run in the terminal. Use your configured hotkeys:
-- **Toggle Recording**: Press your hotkey (e.g., `cmd+option+space`) to start recording. Press again to stop.
+### Daemon Mode (CLI)
+
+Use the CLI to manage the assistant as a background process.
+
+**Add as alias**
+If using fish:
+```bash
+echo "alias whisp 'uv run --directory $PWD src/cli.py'" >> ~/.config/fish/config.fish
+```
+
+Then you can run the assistant like this anywhere:
+```bash
+whisp status
+whisp start
+whisp history list
+whisp history transcribe YYYY-MM-DD-HHMMSS
+whisp stop
+```
+
+**Start the daemon:**
+```bash
+uv run src/cli.py start
+```
+
+**Check status:**
+```bash
+uv run src/cli.py status
+```
+
+**Stop the daemon:**
+```bash
+uv run src/cli.py stop
+```
+
+### History Management
+
+The CLI also provides tools to manage your recording history.
+
+**List recordings:**
+```bash
+uv run src/cli.py history list
+```
+
+**Transcribe a specific recording:**
+```bash
+uv run src/cli.py history transcribe YYYY-MM-DD-HHMMSS
+```
+
+## Hotkeys
+
+- **Toggle Recording**: Press your hotkey (configured in `.env`, e.g., `cmd+option+space`) to start recording. Press again to stop.
 - **Retry Transcription**: Press your retry hotkey to re-transcribe the last recorded audio.
 
 ## Contributing

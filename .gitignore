@@ -4,6 +4,7 @@ raw_output.wav
 .DS_Store
 shortcuts.py
 **/.vscode/
+history/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -167,3 +168,5 @@ cython_debug/
 #.idea/
 
 *.wav
+
+whisper_assistant.pid
