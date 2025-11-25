@@ -65,7 +65,7 @@ class Env:
 
 
 def read_env():
-    load_dotenv()
+    load_dotenv(override=True)
 
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
     if not GROQ_API_KEY:

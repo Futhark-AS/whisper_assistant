@@ -2,6 +2,7 @@ import logging
 import threading
 from pathlib import Path
 from datetime import datetime
+from dotenv import load_dotenv
 from env import read_env
 import log_config  # Import logging configuration
 from packages.audio_recorder import AudioRecorder
@@ -19,12 +20,16 @@ class WhisperApp:
 
     def __init__(self):
         """Initialize the application components."""
+        load_dotenv(override=True)
+
         self.notifier = Notifier()
         self.recorder = AudioRecorder(notifier=self.notifier)
         self.transcriber = Transcriber()
         self.keyboard_listener = KeyboardListener()
         self.last_audio_file = None
         self.env = read_env()
+
+        logger.info(f"init config: \n{self.env}")
 
     def stop_recording(self):
         """Stop the current recording."""
@@ -141,7 +146,7 @@ class WhisperApp:
     def run(self):
         """Start the application."""
         logger.info("Starting Whisper Assistant...")
-        logger.info(f"Config: {self.env.__dict__}")
+        logger.info(f"Config: \n{self.env}")
 
         # Register hotkeys
         self.keyboard_listener.register_hotkey(
