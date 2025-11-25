@@ -148,7 +148,12 @@ def status():
 
 @cli.command()
 @click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
-def transcribe(audio_file):
+@click.option(
+    "--language",
+    default=None,
+    help="Language code for transcription (e.g., 'en', 'es'). Defaults to config value.",
+)
+def transcribe(audio_file, lang):
     """Transcribe an audio file. Can be any audio file on your system."""
     # Resolve to absolute path
     audio_path = Path(audio_file).resolve()
@@ -167,10 +172,11 @@ def transcribe(audio_file):
         # Initialize transcriber
         transcriber = Transcriber()
 
+        # Use provided language or fall back to config
+        language = lang if lang is not None else config.TRANSCRIPTION_LANGUAGE
+
         # Transcribe the file
-        text = transcriber.transcribe(
-            str(audio_path), language=config.TRANSCRIPTION_LANGUAGE
-        )
+        text = transcriber.transcribe(str(audio_path), language=language)
 
         if text:
             click.echo(f"\n{'=' * 60}")
