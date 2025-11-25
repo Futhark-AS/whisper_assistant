@@ -19,10 +19,10 @@ class WhisperApp:
 
     def __init__(self):
         """Initialize the application components."""
-        self.recorder = AudioRecorder()
+        self.notifier = Notifier()
+        self.recorder = AudioRecorder(notifier=self.notifier)
         self.transcriber = Transcriber()
         self.keyboard_listener = KeyboardListener()
-        self.notifier = Notifier()
         self.last_audio_file = None
         self.env = read_env()
 
@@ -77,11 +77,12 @@ class WhisperApp:
         # Audio file path: history/YYYY-MM-DD/HHMMSS/recording.wav
         audio_path = entry_dir / "recording.wav"
 
-        # Notify user that recording is starting
-        self.notifier.notify_recording_start()
-
         # This blocks until stop_recording() is called
-        file_path = self.recorder.start_recording(output_path=str(audio_path))
+        # The AudioRecorder will notify when recording actually starts
+        file_path = self.recorder.start_recording(
+            output_path=str(audio_path),
+            notification_message=f"Recording with lang={self.env.TRANSCRIPTION_LANGUAGE}",
+        )
 
         if file_path:
             self.last_audio_file = file_path
@@ -99,7 +100,7 @@ class WhisperApp:
                 # Save transcription to file
                 self._save_transcription(audio_file_path, text)
                 # Notify user that transcription is complete
-                self.notifier.notify_completion()
+                self.notify_completion()
             else:
                 logger.info("Transcription returned empty result")
 
@@ -132,6 +133,10 @@ class WhisperApp:
             logger.info("Transcription copied to clipboard")
         except ImportError:
             logger.debug("pyperclip not available, skipping clipboard copy")
+
+    def notify_completion(self):
+        self.notifier.show_alert("Transcription complete", "Whisper Assistant")
+        self.notifier.play_sound("/System/Library/Sounds/Glass.aiff", volume=25)
 
     def run(self):
         """Start the application."""

@@ -60,7 +60,7 @@ class Env:
             f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
             f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
             f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
-            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE}"
+            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE or 'auto detect'}"
         )
 
 

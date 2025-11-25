@@ -12,12 +12,13 @@ logger = logging.getLogger(__name__)
 class AudioRecorder:
     """Handles audio recording from microphone to file."""
 
-    def __init__(self, output_dir=None):
+    def __init__(self, output_dir=None, notifier=None):
         """
         Initialize the audio recorder.
 
         Args:
             output_dir: Directory to save recordings. If None, uses current directory.
+            notifier: Notifier instance for playing sounds. If None, creates a new one.
         """
         self.output_dir = output_dir or os.getcwd()
         self.recording = False
@@ -25,13 +26,21 @@ class AudioRecorder:
         self.stream = None
         self.frames = []
 
+        # Initialize notifier if not provided
+        if notifier is None:
+            from packages.notifications import Notifier
+
+            self.notifier = Notifier()
+        else:
+            self.notifier = notifier
+
         # Audio settings
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paFloat32
         self.CHANNELS = 1
         self.RATE = 44100
 
-    def start_recording(self, output_path=None):
+    def start_recording(self, output_path=None, notification_message="Recording..."):
         """
         Start recording audio. Blocks until stop_recording() is called.
         Saves to a file when stopped.
@@ -61,11 +70,20 @@ class AudioRecorder:
 
             logger.debug("Recording started...")
 
-            # Record in a loop until stop_recording() sets self.recording = False
+            firstLoop = True
             while self.recording:
                 try:
                     data = self.stream.read(self.CHUNK, exception_on_overflow=False)
                     self.frames.append(np.frombuffer(data, dtype=np.float32))
+
+                    if firstLoop:
+                        self.notifier.show_alert(
+                            notification_message, "Whisper Assistant"
+                        )
+                        self.notifier.play_sound(
+                            "/System/Library/Sounds/Hero.aiff", volume=25
+                        )
+                        firstLoop = False
                 except Exception as e:
                     logger.error(f"Error during recording: {e}")
                     break
