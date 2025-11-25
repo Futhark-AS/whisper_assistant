@@ -1,10 +1,3 @@
-## custom
-.env
-config/env.py
-env.py
-
-
-
 *.log
 output.wav
 raw_output.wav
@@ -19,8 +12,6 @@ __pycache__/
 
 # C extensions
 *.so
-
-
 
 # Distribution / packaging
 .Python
@@ -174,3 +165,5 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+*.wav

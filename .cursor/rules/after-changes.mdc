@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+
+After youre done changing files, run the following command to validate your changes:
+uv format
