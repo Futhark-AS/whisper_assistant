@@ -22,6 +22,7 @@ class AudioRecorder:
         """
         self.output_dir = output_dir or os.getcwd()
         self.recording = False
+        self.cancelled = False
         self.p = pyaudio.PyAudio()  # Initialize once, reuse for all recordings
         self.stream = None
         self.frames = []
@@ -56,6 +57,7 @@ class AudioRecorder:
             return None
 
         self.recording = True
+        self.cancelled = False
         self.frames = []
 
         try:
@@ -82,6 +84,12 @@ class AudioRecorder:
                     break
 
             logger.debug("Recording stopped")
+
+            # If cancelled, don't save the file
+            if self.cancelled:
+                logger.info("Recording cancelled, discarding audio")
+                self.frames = []
+                return None
 
         finally:
             # Cleanup stream only (PyAudio instance stays alive)
@@ -130,6 +138,19 @@ class AudioRecorder:
 
         self.recording = False
         logger.debug("Stop signal sent")
+
+    def cancel_recording(self):
+        """
+        Cancel the recording and discard any recorded audio.
+        Does not save any file.
+        """
+        if not self.recording:
+            logger.debug("No recording in progress to cancel")
+            return
+
+        self.cancelled = True
+        self.recording = False
+        logger.info("Cancel signal sent")
 
     def is_recording(self):
         """Check if currently recording."""

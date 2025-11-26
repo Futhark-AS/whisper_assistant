@@ -67,6 +67,7 @@ class Env:
     GROQ_API_KEY: str
     TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
     RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
+    CANCEL_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
     TRANSCRIPTION_LANGUAGE: Optional[str]  # None means auto-detect
     TRANSCRIPTION_OUTPUT: TranscriptionOutput
 
@@ -76,6 +77,7 @@ class Env:
             f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
             f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
             f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
+            f"{'CANCEL_RECORDING_HOTKEY:':<30} {self.CANCEL_RECORDING_HOTKEY}\n"
             f"{'TRANSCRIPTION_LANGUAGE:':<30} {lang}\n"
             f"{'TRANSCRIPTION_OUTPUT:':<30} {self.TRANSCRIPTION_OUTPUT}"
         )
@@ -163,6 +165,14 @@ def read_env():
     except ConfigError as e:
         errors.append(e)
 
+    CANCEL_RECORDING_HOTKEY = None
+    try:
+        CANCEL_RECORDING_HOTKEY = _parse_hotkey(
+            "CANCEL_RECORDING_HOTKEY", os.getenv("CANCEL_RECORDING_HOTKEY")
+        )
+    except ConfigError as e:
+        errors.append(e)
+
     TRANSCRIPTION_LANGUAGE = os.getenv("TRANSCRIPTION_LANGUAGE")
     if not TRANSCRIPTION_LANGUAGE:
         errors.append(
@@ -190,12 +200,14 @@ def read_env():
     assert GROQ_API_KEY is not None
     assert TOGGLE_RECORDING_HOTKEY is not None
     assert RETRY_TRANSCRIPTION_HOTKEY is not None
+    assert CANCEL_RECORDING_HOTKEY is not None
     assert TRANSCRIPTION_OUTPUT is not None
 
     return Env(
         GROQ_API_KEY,
         TOGGLE_RECORDING_HOTKEY,
         RETRY_TRANSCRIPTION_HOTKEY,
+        CANCEL_RECORDING_HOTKEY,
         TRANSCRIPTION_LANGUAGE,
         TRANSCRIPTION_OUTPUT,
     )

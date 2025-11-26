@@ -1,10 +1,10 @@
 import os
-import sys
 import signal
-import shutil
-import click
 import subprocess
+import sys
 import time
+
+import click
 from pathlib import Path
 from env import read_env, ConfigErrors
 from packages.transcriber import Transcriber
@@ -12,32 +12,31 @@ from packages.transcriber import Transcriber
 # Constants
 HISTORY_DIR = Path("history")
 PID_FILE = Path("whisper_assistant.pid")
-
-
-def is_running():
-    """Check if the daemon is running."""
-    if not PID_FILE.exists():
-        return False
-
-    try:
-        pid = int(PID_FILE.read_text().strip())
-        # Check if process is alive
-        os.kill(pid, 0)
-        return True
-    except (ValueError, ProcessLookupError, OSError):
-        # PID file exists but process is dead
-        PID_FILE.unlink(missing_ok=True)
-        return False
+STDERR_LOG = Path("logs.stderr.log")
 
 
 def get_pid():
-    """Get the PID from the PID file."""
+    """Get the PID from the PID file, or None if invalid/missing."""
     if not PID_FILE.exists():
         return None
     try:
         return int(PID_FILE.read_text().strip())
     except (ValueError, FileNotFoundError):
         return None
+
+
+def is_running():
+    """Check if the daemon is running."""
+    pid = get_pid()
+    if pid is None:
+        return False
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, OSError):
+        PID_FILE.unlink(missing_ok=True)
+        return False
 
 
 @click.group()
@@ -61,15 +60,37 @@ def _start_daemon():
     # Start daemon process
     try:
         # Use sys.executable to ensure we use the same Python interpreter
+        # Redirect stderr to a file so we can check for startup errors
+        stderr_file = open(STDERR_LOG, "w")
         process = subprocess.Popen(
             [sys.executable, str(script_path)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_file,
             start_new_session=True,  # Detach from parent process
         )
 
         # Write PID file
         PID_FILE.write_text(str(process.pid))
+
+        # Wait briefly to detect immediate crashes
+        time.sleep(0.3)
+
+        # Check if process crashed during startup
+        exit_code = process.poll()
+        if exit_code is not None:
+            stderr_file.close()
+            click.echo(
+                f"Whisper Assistant crashed during startup (exit code: {exit_code})",
+                err=True,
+            )
+            # Show stderr output
+            if STDERR_LOG.exists():
+                stderr_content = STDERR_LOG.read_text().strip()
+                if stderr_content:
+                    click.echo(f"\nError output:\n{stderr_content}", err=True)
+            PID_FILE.unlink(missing_ok=True)
+            return False
+
         click.echo(f"Whisper Assistant started (PID: {process.pid})")
         return True
     except Exception as e:
@@ -148,42 +169,42 @@ def status():
 
 
 @cli.command()
-@click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--language",
-    default=None,
-    help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
-)
-def transcribe(audio_file, language):
-    """Transcribe an audio file. Can be any audio file on your system."""
-    # Resolve to absolute path
+@click.option("--lines", "-n", default=50, help="Number of lines to show (default: 50)")
+@click.option("--stderr", is_flag=True, help="Show stderr log instead of main log")
+def logs(lines, stderr):
+    """Show recent logs from the daemon."""
+    if stderr:
+        log_file = STDERR_LOG
+    else:
+        log_file = Path("logs.info.log")
+
+    if not log_file.exists():
+        click.echo(f"Log file not found: {log_file}")
+        return
+
+    content = log_file.read_text()
+    log_lines = content.strip().split("\n")
+
+    # Show last N lines
+    recent = log_lines[-lines:] if len(log_lines) > lines else log_lines
+    for line in recent:
+        click.echo(line)
+
+
+def _transcribe_audio(audio_path: Path, language: str | None):
+    """Transcribe audio file and print result. Exits on error."""
     env = read_env()
-    audio_path = Path(audio_file).resolve()
-
-    if not audio_path.exists():
-        click.echo(f"Audio file not found: {audio_path}", err=True)
-        sys.exit(1)
-
-    if not audio_path.is_file():
-        click.echo(f"Path is not a file: {audio_path}", err=True)
-        sys.exit(1)
-
     click.echo(f"Transcribing {audio_path}...")
 
     try:
-        # Initialize transcriber
         transcriber = Transcriber()
-
-        # Use provided language or fall back to config
-        language = language if language is not None else env.TRANSCRIPTION_LANGUAGE
-
-        # Transcribe the file
-        text = transcriber.transcribe(str(audio_path), language=language)
+        lang = language if language is not None else env.TRANSCRIPTION_LANGUAGE
+        text = transcriber.transcribe(str(audio_path), language=lang)
 
         if text:
             click.echo(f"\n{'=' * 60}")
-            click.echo(f"Transcription:")
-            click.echo(f"{text}")
+            click.echo("Transcription:")
+            click.echo(text)
             click.echo(f"{'=' * 60}\n")
         else:
             click.echo("Transcription returned empty result", err=True)
@@ -194,37 +215,85 @@ def transcribe(audio_file, language):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--language",
+    default=None,
+    help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
+)
+def transcribe(audio_file, language):
+    """Transcribe an audio file. Can be any audio file on your system."""
+    audio_path = Path(audio_file).resolve()
+
+    if not audio_path.exists():
+        click.echo(f"Audio file not found: {audio_path}", err=True)
+        sys.exit(1)
+
+    if not audio_path.is_file():
+        click.echo(f"Path is not a file: {audio_path}", err=True)
+        sys.exit(1)
+
+    _transcribe_audio(audio_path, language)
+
+
 @cli.group()
 def history():
     """Manage recorded history."""
     pass
 
 
+def _get_all_recordings():
+    """Get all recordings sorted chronologically (oldest first)."""
+    if not HISTORY_DIR.exists():
+        return []
+
+    recordings = []
+    for date_dir in sorted(d for d in HISTORY_DIR.iterdir() if d.is_dir()):
+        for timestamp_dir in sorted(d for d in date_dir.iterdir() if d.is_dir()):
+            audio_path = timestamp_dir / "recording.wav"
+            if audio_path.exists():
+                recordings.append(audio_path)
+    return recordings
+
+
 @history.command()
 def list():
     """List recorded history."""
-    if not HISTORY_DIR.exists():
-        click.echo("No history found")
-        return
+    recordings = _get_all_recordings()
 
-    # List all date directories
-    date_dirs = sorted([d for d in HISTORY_DIR.iterdir() if d.is_dir()], reverse=True)
-
-    if not date_dirs:
+    if not recordings:
         click.echo("No recordings found")
         return
 
-    for date_dir in date_dirs:
-        # List timestamp directories in this date directory
-        timestamp_dirs = sorted(
-            [d for d in date_dir.iterdir() if d.is_dir()], reverse=True
-        )
-        for timestamp_dir in timestamp_dirs:
-            # Output full path to recording.wav file
-            audio_path = timestamp_dir / "recording.wav"
-            if audio_path.exists():
-                # Use absolute path for easy copy-paste
-                click.echo(str(audio_path.resolve()))
+    for audio_path in recordings:
+        click.echo(str(audio_path.resolve()))
+
+
+@history.command(name="transcribe")
+@click.argument("n", type=int)
+@click.option(
+    "--language",
+    default=None,
+    help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
+)
+def history_transcribe(n, language):
+    """Transcribe the Nth most recent recording (1 = latest)."""
+    if n < 1:
+        click.echo("N must be at least 1", err=True)
+        sys.exit(1)
+
+    recordings = _get_all_recordings()
+
+    if not recordings:
+        click.echo("No recordings found", err=True)
+        sys.exit(1)
+
+    if n > len(recordings):
+        click.echo(f"Only {len(recordings)} recordings available", err=True)
+        sys.exit(1)
+
+    _transcribe_audio(recordings[-n], language)
 
 
 @cli.group()

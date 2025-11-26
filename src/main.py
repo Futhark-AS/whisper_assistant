@@ -40,6 +40,17 @@ class WhisperApp:
         logger.info("Stopping recording...")
         self.recorder.stop_recording()
 
+    def cancel_recording(self):
+        """Cancel the current recording without transcribing."""
+        if not self.recorder.is_recording():
+            logger.debug("Cancel command ignored: Not recording")
+            return
+
+        logger.info("Cancelling recording...")
+        self.recorder.cancel_recording()
+        self.notifier.show_alert("Recording cancelled", "Whisper Assistant")
+        self.notifier.play_sound("/System/Library/Sounds/Basso.aiff", volume=25)
+
     def toggle_recording(self):
         """Callback for toggle recording hotkey."""
         if self.recorder.is_recording():
@@ -89,11 +100,16 @@ class WhisperApp:
             notification_message=f"Recording with lang={self.env.TRANSCRIPTION_LANGUAGE}",
         )
 
+        logger.info("Recording completed")
+
         if file_path:
             self.last_audio_file = file_path
+            logger.info("Transcribing recording...")
             self.transcribe_file(file_path, language=self.env.TRANSCRIPTION_LANGUAGE)
         else:
-            logger.error("Recording completed but no file path was returned")
+            logger.info(
+                "Recording completed but no file path was returned, skipping transcription"
+            )
 
     def transcribe_file(self, audio_file_path, language):
         """Transcribe audio file and output the result."""
@@ -167,6 +183,9 @@ class WhisperApp:
         )
         self.keyboard_listener.register_hotkey(
             self.env.RETRY_TRANSCRIPTION_HOTKEY, self.retry_transcription
+        )
+        self.keyboard_listener.register_hotkey(
+            self.env.CANCEL_RECORDING_HOTKEY, self.cancel_recording
         )
 
         # Start listener and block main thread
