@@ -101,7 +101,7 @@ class WhisperApp:
             text = self.transcriber.transcribe(audio_file_path, language=language)
 
             if text:
-                self._print_and_copy_transcription(text)
+                self._output_transcription(text)
                 # Save transcription to file
                 self._save_transcription(audio_file_path, text)
                 # Notify user that transcription is complete
@@ -124,20 +124,33 @@ class WhisperApp:
         except Exception as e:
             logger.error(f"Error saving transcription: {e}", exc_info=True)
 
-    def _print_and_copy_transcription(self, text):
-        """Helper to print transcription and copy to clipboard."""
+    def _output_transcription(self, text):
+        """Output transcription based on configured output modes."""
         print(f"\n{'=' * 60}")
         print(f"Transcription:")
         print(f"{text}")
         print(f"{'=' * 60}\n")
 
-        try:
-            import pyperclip
+        output = self.env.TRANSCRIPTION_OUTPUT
 
-            pyperclip.copy(text)
-            logger.info("Transcription copied to clipboard")
-        except ImportError:
-            logger.debug("pyperclip not available, skipping clipboard copy")
+        if output.clipboard:
+            try:
+                import pyperclip
+
+                pyperclip.copy(text)
+                logger.info("Transcription copied to clipboard")
+            except ImportError:
+                logger.warning("pyperclip not available, skipping clipboard copy")
+
+        if output.paste_on_cursor:
+            try:
+                from pynput.keyboard import Controller
+
+                keyboard_controller = Controller()
+                keyboard_controller.type(text)
+                logger.info("Transcription typed at cursor position")
+            except Exception as e:
+                logger.error(f"Failed to type transcription at cursor: {e}")
 
     def notify_completion(self):
         self.notifier.show_alert("Transcription complete", "Whisper Assistant")

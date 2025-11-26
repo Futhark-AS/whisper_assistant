@@ -1,11 +1,63 @@
 import os
-from dataclasses import dataclass
+from pathlib import Path
+from dataclasses import dataclass, fields
 import logging
 from typing import Set, Union, Optional
 from pynput import keyboard
 from dotenv import load_dotenv
+import shutil
+import click
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TranscriptionOutput:
+    clipboard: bool = False
+    paste_on_cursor: bool = False
+
+    @classmethod
+    def valid_options(cls) -> set[str]:
+        return {f.name for f in fields(cls)}
+
+    @classmethod
+    def from_string(cls, output_str: Optional[str]) -> "TranscriptionOutput":
+        if not output_str:
+            raise ValueError("TRANSCRIPTION_OUTPUT cannot be empty")
+
+        if output_str.lower() == "none":
+            return cls()
+
+        parts = {p.strip().lower() for p in output_str.split(",") if p.strip()}
+        invalid = parts - cls.valid_options()
+        if invalid:
+            raise ValueError(
+                f"Invalid transcription output mode(s): {invalid}. "
+                f"Valid options: {cls.valid_options()}"
+            )
+        return cls(**{opt: True for opt in parts})
+
+    def __str__(self):
+        enabled = [f.name for f in fields(self) if getattr(self, f.name)]
+        return ", ".join(enabled) if enabled else "none"
+
+
+@dataclass
+class Env:
+    GROQ_API_KEY: Optional[str]
+    TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
+    RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
+    TRANSCRIPTION_LANGUAGE: Optional[str]
+    TRANSCRIPTION_OUTPUT: TranscriptionOutput
+
+    def __str__(self):
+        return (
+            f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
+            f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
+            f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
+            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE or 'auto detect'}\n"
+            f"{'TRANSCRIPTION_OUTPUT:':<30} {self.TRANSCRIPTION_OUTPUT}"
+        )
 
 
 def _parse_hotkey(
@@ -48,23 +100,13 @@ def _parse_hotkey(
     return keys
 
 
-@dataclass
-class Env:
-    GROQ_API_KEY: Optional[str]
-    TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
-    RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
-    TRANSCRIPTION_LANGUAGE: Optional[str]
-
-    def __str__(self):
-        return (
-            f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
-            f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
-            f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
-            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE or 'auto detect'}"
-        )
-
-
 def read_env():
+    env_file = Path.cwd() / ".env"
+    if not env_file.exists():
+        # Copy .env.example to .env
+        shutil.copy(Path.cwd() / ".env.example", env_file)
+        logger.info("No .env file found. Copied .env.example to .env")
+
     load_dotenv(override=True)
 
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
@@ -78,10 +120,14 @@ def read_env():
         _parse_hotkey(os.getenv("RETRY_TRANSCRIPTION_HOTKEY"))
     )
     TRANSCRIPTION_LANGUAGE: Optional[str] = os.getenv("TRANSCRIPTION_LANGUAGE")
+    TRANSCRIPTION_OUTPUT = TranscriptionOutput.from_string(
+        os.getenv("TRANSCRIPTION_OUTPUT")
+    )
 
     return Env(
         GROQ_API_KEY,
         TOGGLE_RECORDING_HOTKEY,
         RETRY_TRANSCRIPTION_HOTKEY,
         TRANSCRIPTION_LANGUAGE,
+        TRANSCRIPTION_OUTPUT,
     )

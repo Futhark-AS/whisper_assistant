@@ -1,19 +1,17 @@
 import os
 import sys
 import signal
+import shutil
 import click
 import subprocess
 import time
 from pathlib import Path
 from env import read_env
 from packages.transcriber import Transcriber
-from dotenv import dotenv_values
 
 # Constants
 HISTORY_DIR = Path("history")
 PID_FILE = Path("whisper_assistant.pid")
-
-env = read_env()
 
 
 def is_running():
@@ -159,6 +157,7 @@ def status():
 def transcribe(audio_file, language):
     """Transcribe an audio file. Can be any audio file on your system."""
     # Resolve to absolute path
+    env = read_env()
     audio_path = Path(audio_file).resolve()
 
     if not audio_path.exists():
@@ -237,17 +236,7 @@ def config():
 @config.command(name="show")
 def config_show():
     """Show current configuration values."""
-    # Find .env file in workspace root
-    env_file = Path.cwd() / ".env"
-
-    if not env_file.exists():
-        click.echo(
-            "No .env file found. Create one to configure the application.", err=True
-        )
-        sys.exit(1)
-
-    import json
-
+    env = read_env()
     click.echo(f"Current Configuration:\n{env}")
 
 
@@ -257,30 +246,6 @@ def config_edit():
     # Find .env file in workspace root
     env_file = Path.cwd() / ".env"
 
-    if not env_file.exists():
-        click.echo("No .env file found. Creating template...", err=True)
-        # Create a template .env file
-        template = """# Groq API Key (required)
-# Get your API key from https://console.groq.com/
-GROQ_API_KEY=your_api_key
-
-# Format for hotkeys: modifier1+modifier2+...+key
-# Modifiers: cmd, ctrl, shift, alt
-# Example: "cmd+ctrl+shift+alt+c"
-# Default: "cmd+ctrl+shift+alt+2"
-# Note: This hotkey toggles recording on/off
-TOGGLE_RECORDING_HOTKEY=ctrl+shift+1
-RETRY_TRANSCRIPTION_HOTKEY=ctrl+shift+2
-
-# Transcription language
-# Set to a language code (e.g., "en" for English, "nb" for Norwegian Bokmål) to force a language.
-# Leave unset or empty to automatically detect language.
-# Examples: "en", "nb", "es", "fr"
-TRANSCRIPTION_LANGUAGE=
-"""
-        env_file.write_text(template)
-        click.echo(f"Created .env file at: {env_file.resolve()}")
-
     # Get the file's modification time before editing
     mtime_before = env_file.stat().st_mtime
 
@@ -288,7 +253,7 @@ TRANSCRIPTION_LANGUAGE=
     was_running = is_running()
 
     # Open in editor (respect EDITOR env var, fallback to sensible defaults)
-    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "nano"))
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "code"))
 
     try:
         # Open the editor (may or may not block depending on the editor)
