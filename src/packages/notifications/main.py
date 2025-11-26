@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import platform
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,18 @@ class Notifier:
 
     def play_sound(self, sound_file, volume=25):
         """
-        Play a system sound at a specified volume.
+        Play a system sound at a specified volume (non-blocking).
 
         Args:
             sound_file: Path to the sound file
             volume: Volume level (0-100)
         """
+        threading.Thread(
+            target=self._play_sound_sync, args=(sound_file, volume), daemon=True
+        ).start()
+
+    def _play_sound_sync(self, sound_file, volume):
+        """Internal method to play sound synchronously (runs in background thread)."""
         self._run_osascript(f"""set currentVol to output volume of (get volume settings)
 set volume output volume {volume}
 do shell script "afplay {sound_file}"

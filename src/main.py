@@ -168,6 +168,7 @@ class WhisperApp:
         """Clean shutdown of all components."""
         if self.recorder.is_recording():
             self.recorder.stop_recording()
+        self.recorder.cleanup()  # Clean up PyAudio instance
         self.keyboard_listener.stop()
 
 

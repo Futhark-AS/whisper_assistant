@@ -22,7 +22,7 @@ class AudioRecorder:
         """
         self.output_dir = output_dir or os.getcwd()
         self.recording = False
-        self.p = None
+        self.p = pyaudio.PyAudio()  # Initialize once, reuse for all recordings
         self.stream = None
         self.frames = []
 
@@ -59,7 +59,6 @@ class AudioRecorder:
         self.frames = []
 
         try:
-            self.p = pyaudio.PyAudio()
             self.stream = self.p.open(
                 format=self.FORMAT,
                 channels=self.CHANNELS,
@@ -68,22 +67,16 @@ class AudioRecorder:
                 frames_per_buffer=self.CHUNK,
             )
 
+            # Notify immediately after stream opens, before first chunk read
+            self.notifier.show_alert(notification_message, "Whisper Assistant")
+            self.notifier.play_sound("/System/Library/Sounds/Hero.aiff", volume=25)
+
             logger.debug("Recording started...")
 
-            firstLoop = True
             while self.recording:
                 try:
                     data = self.stream.read(self.CHUNK, exception_on_overflow=False)
                     self.frames.append(np.frombuffer(data, dtype=np.float32))
-
-                    if firstLoop:
-                        self.notifier.show_alert(
-                            notification_message, "Whisper Assistant"
-                        )
-                        self.notifier.play_sound(
-                            "/System/Library/Sounds/Hero.aiff", volume=25
-                        )
-                        firstLoop = False
                 except Exception as e:
                     logger.error(f"Error during recording: {e}")
                     break
@@ -91,16 +84,11 @@ class AudioRecorder:
             logger.debug("Recording stopped")
 
         finally:
-            # Cleanup stream and pyaudio
+            # Cleanup stream only (PyAudio instance stays alive)
             if self.stream:
                 try:
                     self.stream.stop_stream()
                     self.stream.close()
-                except:
-                    pass
-            if self.p:
-                try:
-                    self.p.terminate()
                 except:
                     pass
 
@@ -146,3 +134,11 @@ class AudioRecorder:
     def is_recording(self):
         """Check if currently recording."""
         return self.recording
+
+    def cleanup(self):
+        """Clean up PyAudio instance. Call when done with recorder."""
+        if self.p:
+            try:
+                self.p.terminate()
+            except:
+                pass

@@ -32,7 +32,7 @@ console_handler.setFormatter(logging.Formatter(log_format))
 # Rotates daily at midnight and keeps only 1 backup (today + yesterday)
 # Logs older than 1 day are automatically deleted
 debug_file_handler = logging.handlers.TimedRotatingFileHandler(
-    debug_log_file, when="midnight", interval=1, backupCount=1
+    debug_log_file, when="midnight", interval=1, backupCount=0
 )
 debug_file_handler.setLevel(logging.DEBUG)
 debug_file_handler.setFormatter(logging.Formatter(log_format))
@@ -41,7 +41,7 @@ debug_file_handler.setFormatter(logging.Formatter(log_format))
 # Rotates daily at midnight and keeps only 1 backup (today + yesterday)
 # Logs older than 1 day are automatically deleted
 info_file_handler = logging.handlers.TimedRotatingFileHandler(
-    info_log_file, when="midnight", interval=1, backupCount=1
+    info_log_file, when="midnight", interval=1, backupCount=0
 )
 info_file_handler.setLevel(logging.INFO)
 info_file_handler.setFormatter(logging.Formatter(log_format))
