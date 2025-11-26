@@ -6,7 +6,7 @@ import click
 import subprocess
 import time
 from pathlib import Path
-from env import read_env
+from env import read_env, ConfigErrors
 from packages.transcriber import Transcriber
 
 # Constants
@@ -152,7 +152,7 @@ def status():
 @click.option(
     "--language",
     default=None,
-    help="Language code for transcription (e.g., 'en', 'es'). Defaults to config value.",
+    help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
 )
 def transcribe(audio_file, language):
     """Transcribe an audio file. Can be any audio file on your system."""
@@ -241,52 +241,63 @@ def config_show():
 
 
 @config.command(name="edit")
-def config_edit():
+@click.option(
+    "--editor",
+    "-e",
+    default=None,
+    help="Editor to use (e.g., 'nvim', 'vim', 'code'). Defaults to $EDITOR or $VISUAL.",
+)
+def config_edit(editor):
     """Edit configuration in your default editor. Restarts daemon if running."""
     # Find .env file in workspace root
     env_file = Path.cwd() / ".env"
 
-    # Get the file's modification time before editing
-    mtime_before = env_file.stat().st_mtime
-
     # Check if daemon is running
     was_running = is_running()
 
-    # Open in editor (respect EDITOR env var, fallback to sensible defaults)
-    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "code"))
+    # Use provided editor, or fall back to env vars
+    if editor is None:
+        editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "code"))
 
-    try:
-        # Open the editor (may or may not block depending on the editor)
-        subprocess.run([editor, str(env_file)], check=True)
+    while True:
+        try:
+            # Open the editor (may or may not block depending on the editor)
+            subprocess.run([editor, str(env_file)], check=True)
 
-        # Prompt user to confirm they're done editing
-        # This handles editors that don't block (like 'code', 'subl')
-        click.echo("\nPress Enter when you're done editing and have saved the file...")
-        input()
+            # Prompt user to confirm they're done editing
+            # This handles editors that don't block (like 'code', 'subl')
+            click.echo(
+                "\nPress Enter when you're done editing and have saved the file..."
+            )
+            input()
 
-        # Check if file was modified
-        mtime_after = env_file.stat().st_mtime
+        except subprocess.CalledProcessError:
+            click.echo("Editor exited with error", err=True)
+            sys.exit(1)
+        except FileNotFoundError:
+            click.echo(
+                f"Editor '{editor}' not found. Set EDITOR environment variable.",
+                err=True,
+            )
+            sys.exit(1)
 
-        if mtime_after != mtime_before:
-            click.echo("Configuration updated.")
+        # Validate configuration
+        try:
+            read_env()
+            click.echo("Configuration valid.")
+            break
+        except ConfigErrors as e:
+            click.echo(f"\n{e}", err=True)
+            if not click.confirm("Edit again?", default=True):
+                click.echo("Aborted.")
+                return
 
-            # If daemon was running, restart it to apply changes
-            if was_running:
-                click.echo("Restarting daemon to apply changes...")
-                _stop_daemon()
-                time.sleep(0.5)
-                _start_daemon()
-        else:
-            click.echo("No changes made.")
-
-    except subprocess.CalledProcessError:
-        click.echo("Editor exited with error", err=True)
-        sys.exit(1)
-    except FileNotFoundError:
-        click.echo(
-            f"Editor '{editor}' not found. Set EDITOR environment variable.", err=True
-        )
-        sys.exit(1)
+    # If daemon was running, restart it to apply changes
+    if was_running:
+        click.echo("Restarting daemon to apply changes...")
+        _stop_daemon()
+        time.sleep(0.5)
+        _start_daemon()
 
 
 if __name__ == "__main__":

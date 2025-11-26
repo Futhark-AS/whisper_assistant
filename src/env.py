@@ -11,6 +11,23 @@ import click
 logger = logging.getLogger(__name__)
 
 
+class ConfigError(ValueError):
+    """Configuration error with key name."""
+
+    def __init__(self, key: str, message: str):
+        self.key = key
+        self.message = message
+        super().__init__(f"{key}: {message}")
+
+
+class ConfigErrors(ValueError):
+    """Multiple configuration errors."""
+
+    def __init__(self, errors: list[ConfigError]):
+        self.errors = errors
+        super().__init__("\n".join(str(e) for e in errors))
+
+
 @dataclass
 class TranscriptionOutput:
     clipboard: bool = False
@@ -18,24 +35,27 @@ class TranscriptionOutput:
 
     @classmethod
     def valid_options(cls) -> set[str]:
-        return {f.name for f in fields(cls)}
+        return {f.name for f in fields(cls)} | {"none"}
 
     @classmethod
     def from_string(cls, output_str: Optional[str]) -> "TranscriptionOutput":
+        valid = cls.valid_options()
         if not output_str:
-            raise ValueError("TRANSCRIPTION_OUTPUT cannot be empty")
+            raise ConfigError(
+                "TRANSCRIPTION_OUTPUT", f"cannot be empty. Valid: {', '.join(valid)}"
+            )
 
         if output_str.lower() == "none":
             return cls()
 
         parts = {p.strip().lower() for p in output_str.split(",") if p.strip()}
-        invalid = parts - cls.valid_options()
+        invalid = parts - valid
         if invalid:
-            raise ValueError(
-                f"Invalid transcription output mode(s): {invalid}. "
-                f"Valid options: {cls.valid_options()}"
+            raise ConfigError(
+                "TRANSCRIPTION_OUTPUT",
+                f"invalid value '{', '.join(invalid)}'. Valid: {', '.join(valid)}",
             )
-        return cls(**{opt: True for opt in parts})
+        return cls(**{opt: True for opt in parts if opt != "none"})
 
     def __str__(self):
         enabled = [f.name for f in fields(self) if getattr(self, f.name)]
@@ -44,31 +64,42 @@ class TranscriptionOutput:
 
 @dataclass
 class Env:
-    GROQ_API_KEY: Optional[str]
+    GROQ_API_KEY: str
     TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
     RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]]
-    TRANSCRIPTION_LANGUAGE: Optional[str]
+    TRANSCRIPTION_LANGUAGE: Optional[str]  # None means auto-detect
     TRANSCRIPTION_OUTPUT: TranscriptionOutput
 
     def __str__(self):
+        lang = self.TRANSCRIPTION_LANGUAGE if self.TRANSCRIPTION_LANGUAGE else "auto"
         return (
             f"{'GROQ_API_KEY:':<30} {self.GROQ_API_KEY}\n"
             f"{'TOGGLE_RECORDING_HOTKEY:':<30} {self.TOGGLE_RECORDING_HOTKEY}\n"
             f"{'RETRY_TRANSCRIPTION_HOTKEY:':<30} {self.RETRY_TRANSCRIPTION_HOTKEY}\n"
-            f"{'TRANSCRIPTION_LANGUAGE:':<30} {self.TRANSCRIPTION_LANGUAGE or 'auto detect'}\n"
+            f"{'TRANSCRIPTION_LANGUAGE:':<30} {lang}\n"
             f"{'TRANSCRIPTION_OUTPUT:':<30} {self.TRANSCRIPTION_OUTPUT}"
         )
 
 
+VALID_MODIFIERS = ["cmd", "ctrl", "control", "shift", "alt", "option"]
+
+
 def _parse_hotkey(
+    key_name: str,
     hotkey_str: Optional[str],
 ) -> Set[Union[keyboard.Key, keyboard.KeyCode]]:
     if not hotkey_str:
-        raise ValueError("Hotkey string cannot be empty")
+        raise ConfigError(
+            key_name,
+            f"cannot be empty. Format: modifier+key (e.g. cmd+shift+r). Modifiers: {', '.join(VALID_MODIFIERS)}",
+        )
 
     parts = [p.strip().lower() for p in hotkey_str.split("+")]
     if not parts:
-        raise ValueError(f"Invalid hotkey format: {hotkey_str}")
+        raise ConfigError(
+            key_name,
+            f"invalid format '{hotkey_str}'. Format: modifier+key (e.g. cmd+shift+r)",
+        )
 
     keys = set()
     key_map = {
@@ -93,8 +124,9 @@ def _parse_hotkey(
                 key_attr = getattr(keyboard.Key, part)
                 keys.add(key_attr)
             except AttributeError:
-                raise ValueError(
-                    f"Unknown key or modifier: {part} in hotkey '{hotkey_str}'"
+                raise ConfigError(
+                    key_name,
+                    f"unknown key '{part}'. Modifiers: {', '.join(VALID_MODIFIERS)}",
                 )
 
     return keys
@@ -109,20 +141,56 @@ def read_env():
 
     load_dotenv(override=True)
 
-    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-    if not GROQ_API_KEY:
-        raise ValueError("GROQ_API_KEY is not set")
+    errors: list[ConfigError] = []
 
-    TOGGLE_RECORDING_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = _parse_hotkey(
-        os.getenv("TOGGLE_RECORDING_HOTKEY")
-    )
-    RETRY_TRANSCRIPTION_HOTKEY: Set[Union[keyboard.Key, keyboard.KeyCode]] = (
-        _parse_hotkey(os.getenv("RETRY_TRANSCRIPTION_HOTKEY"))
-    )
-    TRANSCRIPTION_LANGUAGE: Optional[str] = os.getenv("TRANSCRIPTION_LANGUAGE")
-    TRANSCRIPTION_OUTPUT = TranscriptionOutput.from_string(
-        os.getenv("TRANSCRIPTION_OUTPUT")
-    )
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    if not GROQ_API_KEY:
+        errors.append(ConfigError("GROQ_API_KEY", "cannot be empty"))
+
+    TOGGLE_RECORDING_HOTKEY = None
+    try:
+        TOGGLE_RECORDING_HOTKEY = _parse_hotkey(
+            "TOGGLE_RECORDING_HOTKEY", os.getenv("TOGGLE_RECORDING_HOTKEY")
+        )
+    except ConfigError as e:
+        errors.append(e)
+
+    RETRY_TRANSCRIPTION_HOTKEY = None
+    try:
+        RETRY_TRANSCRIPTION_HOTKEY = _parse_hotkey(
+            "RETRY_TRANSCRIPTION_HOTKEY", os.getenv("RETRY_TRANSCRIPTION_HOTKEY")
+        )
+    except ConfigError as e:
+        errors.append(e)
+
+    TRANSCRIPTION_LANGUAGE = os.getenv("TRANSCRIPTION_LANGUAGE")
+    if not TRANSCRIPTION_LANGUAGE:
+        errors.append(
+            ConfigError(
+                "TRANSCRIPTION_LANGUAGE",
+                "cannot be empty. Use 'auto' for auto-detection or a language code (e.g. 'en', 'es')",
+            )
+        )
+    elif TRANSCRIPTION_LANGUAGE.lower() == "auto":
+        # Normalize "auto" to None for internal use
+        TRANSCRIPTION_LANGUAGE = None
+
+    TRANSCRIPTION_OUTPUT = None
+    try:
+        TRANSCRIPTION_OUTPUT = TranscriptionOutput.from_string(
+            os.getenv("TRANSCRIPTION_OUTPUT")
+        )
+    except ConfigError as e:
+        errors.append(e)
+
+    if errors:
+        raise ConfigErrors(errors)
+
+    # These assertions satisfy the type checker - we know they're not None if no errors
+    assert GROQ_API_KEY is not None
+    assert TOGGLE_RECORDING_HOTKEY is not None
+    assert RETRY_TRANSCRIPTION_HOTKEY is not None
+    assert TRANSCRIPTION_OUTPUT is not None
 
     return Env(
         GROQ_API_KEY,
