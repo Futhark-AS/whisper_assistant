@@ -9,6 +9,7 @@ Requires macOS and [uv](https://github.com/astral-sh/uv).
 ```bash
 brew install portaudio
 uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git
+whisper-assistant --version  # shows how to upgrade
 whisper-assistant init
 ```
 
@@ -16,11 +17,6 @@ The `init` wizard will:
 1. Ask for your [Groq API key](https://console.groq.com/keys) (free)
 2. Configure hotkeys and preferences
 3. Start the background daemon
-
-To upgrade:
-```bash
-uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git
-```
 
 **Where files are stored** ([XDG Base Directory Specification](https://xdgbasedirectoryspecification.com/)):
 | Path | Contents |
@@ -68,6 +64,12 @@ whisper-assistant transcribe /path/to/audio.wav
 This CLI is installed via `uv tool install`, which:
 - Creates an isolated venv at `~/.local/share/uv/tools/whisper-assistant/`
 - Symlinks the CLI to `~/.local/bin/` (should be in your PATH)
+
+If you want to use a shorter name for running the CLI, you can symlink it:
+
+```bash
+ln -sf ~/.local/bin/whisper-assistant ~/.local/bin/whisp
+```
 
 **Why git instead of PyPI?**
 - Faster iteration without publishing releases
