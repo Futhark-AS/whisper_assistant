@@ -19,6 +19,14 @@ The wizard will:
 2. Configure hotkeys and preferences
 3. Start the background daemon
 
+**Where files are stored** ([XDG Base Directory Specification](https://xdgbasedirectoryspecification.com/)):
+| Path | Contents |
+|------|----------|
+| `~/.config/whisper-assistant/config.env` | API key, hotkeys, preferences |
+| `~/.local/share/whisper-assistant/history/` | Audio recordings & transcriptions |
+| `~/.local/state/whisper-assistant/logs/` | Log files |
+| `~/.local/state/whisper-assistant/daemon.pid` | Daemon process ID |
+
 ## Usage
 
 ```bash
