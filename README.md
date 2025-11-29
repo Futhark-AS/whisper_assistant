@@ -9,12 +9,31 @@ Requires macOS and [uv](https://github.com/astral-sh/uv).
 ```bash
 # Install portaudio (required for audio recording)
 brew install portaudio
-
-# Run the setup wizard
-uvx whisper-assistant init
 ```
 
-The wizard will:
+**Option 1: Persistent Installation (recommended)**
+
+Install once and use everywhere:
+
+```bash
+uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git
+whisper-assistant init
+```
+
+To upgrade:
+```bash
+uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git
+```
+
+**Option 2: One-time Usage**
+
+Run directly without installing:
+
+```bash
+uvx --from git+https://github.com/Futhark-AS/whisper_assistant.git whisper-assistant init
+```
+
+The `init` wizard will:
 1. Ask for your [Groq API key](https://console.groq.com/keys) (free)
 2. Configure hotkeys and preferences
 3. Start the background daemon

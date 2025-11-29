@@ -1,4 +1,4 @@
-# Version bumping and publishing
+# Version bumping
 
 # Bump patch version (0.1.6 -> 0.1.7)
 patch:
@@ -76,13 +76,3 @@ major:
     pyproject.write_text(content.replace(f'version = "{old}"', f'version = "{new}"'))
     init.write_text(init.read_text().replace(f'__version__ = "{old}"', f'__version__ = "{new}"'))
     print(f"Bumped {old} -> {new}")
-
-# Build and publish
-publish:
-    rm -rf dist/
-    uv build
-    uv publish
-
-# Bump patch and publish
-release: patch publish
-

@@ -52,7 +52,7 @@ def is_running():
 @click.version_option(
     version=__version__,
     prog_name="whisper-assistant",
-    message="%(prog)s %(version)s\n\nTo upgrade: uvx --refresh whisper-assistant --version",
+    message="%(prog)s %(version)s\n\nTo upgrade: uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git",
 )
 def cli():
     """Whisper Assistant CLI."""
