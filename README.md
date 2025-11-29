@@ -7,36 +7,20 @@ Voice-to-text tool powered by Groq's Whisper API. Press a hotkey, speak, and get
 Requires macOS and [uv](https://github.com/astral-sh/uv).
 
 ```bash
-# Install portaudio (required for audio recording)
 brew install portaudio
-```
-
-**Option 1: Persistent Installation (recommended)**
-
-Install once and use everywhere:
-
-```bash
 uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git
 whisper-assistant init
-```
-
-To upgrade:
-```bash
-uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git
-```
-
-**Option 2: One-time Usage**
-
-Run directly without installing:
-
-```bash
-uvx --from git+https://github.com/Futhark-AS/whisper_assistant.git whisper-assistant init
 ```
 
 The `init` wizard will:
 1. Ask for your [Groq API key](https://console.groq.com/keys) (free)
 2. Configure hotkeys and preferences
 3. Start the background daemon
+
+To upgrade:
+```bash
+uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git
+```
 
 **Where files are stored** ([XDG Base Directory Specification](https://xdgbasedirectoryspecification.com/)):
 | Path | Contents |
@@ -78,6 +62,27 @@ whisper-assistant transcribe /path/to/audio.wav
 - `Ctrl+Shift+3` — Cancel recording
 
 **Config location:** `~/.config/whisper-assistant/config.env`
+
+## About uv tools
+
+This CLI is installed via `uv tool install`, which:
+- Creates an isolated venv at `~/.local/share/uv/tools/whisper-assistant/`
+- Symlinks the CLI to `~/.local/bin/` (should be in your PATH)
+
+**Why git instead of PyPI?**
+- Faster iteration without publishing releases
+- Always get the latest from `main`
+
+**Trade-off:** No pinned versions — you always pull latest. For stability, pin to a commit:
+```bash
+uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git@<commit-sha>
+```
+
+**Useful commands:**
+```bash
+uv tool list       # see installed tools
+uv tool uninstall whisper-assistant
+```
 
 ## Contributing
 
