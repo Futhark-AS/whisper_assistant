@@ -25,6 +25,7 @@ class KeyboardListener:
 
         # Wrap callback to catch exceptions and prevent listener from crashing
         def safe_callback():
+            logger.debug(f"Hotkey triggered: {hotkey_set}")
             try:
                 callback()
             except Exception as e:
