@@ -1,6 +1,6 @@
 [project]
 name = "whisper-assistant"
-version = "0.1.7"
+version = "0.1.9"
 description = "Voice transcription tool using Groq API with global hotkeys"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -59,6 +59,123 @@ def cli():
     pass
 
 
+GROQ_CONSOLE_URL = "https://console.groq.com/keys"
+
+
+@cli.command()
+def init():
+    """Interactive init wizard for first-time configuration."""
+    config_file = get_config_file()
+
+    click.echo()
+    click.secho("🎙️  Whisper Assistant Setup", fg="cyan", bold=True)
+    click.echo("=" * 40)
+    click.echo()
+
+    # Step 1: Groq API Key
+    click.echo("This tool uses Groq's Whisper API for transcription.")
+    click.echo()
+    api_key = click.prompt(
+        click.style(
+            f"1. Get your free API key at: {GROQ_CONSOLE_URL} and paste it here",
+            fg="yellow",
+        )
+    )
+
+    if not api_key or api_key == "your_api_key":
+        click.secho("Invalid API key. Run 'whisper-assistant init' again.", fg="red")
+        sys.exit(1)
+
+    click.echo()
+    click.secho("3. Configure hotkeys and options", fg="yellow")
+    click.echo("   (Press Enter to accept defaults)")
+    click.echo()
+
+    # Hotkeys with defaults
+    toggle_hotkey = click.prompt(
+        "   Toggle recording hotkey",
+        default="ctrl+shift+1",
+        show_default=True,
+    )
+
+    retry_hotkey = click.prompt(
+        "   Retry transcription hotkey",
+        default="ctrl+shift+2",
+        show_default=True,
+    )
+
+    cancel_hotkey = click.prompt(
+        "   Cancel recording hotkey",
+        default="ctrl+shift+3",
+        show_default=True,
+    )
+
+    # Language
+    click.echo()
+    click.echo("   Language: 'auto' for auto-detect, or code like 'en', 'no', 'es'")
+    language = click.prompt(
+        "   Transcription language",
+        default="auto",
+        show_default=True,
+    )
+
+    # Output mode
+    click.echo()
+    click.echo(
+        "   Output: 'clipboard', 'paste_on_cursor', 'clipboard,paste_on_cursor', or 'none'"
+    )
+    output = click.prompt(
+        "   Transcription output",
+        default="paste_on_cursor",
+        show_default=True,
+    )
+
+    # Write config
+    config_content = f"""\
+# Whisper Assistant Configuration
+# Edit with: whisper-assistant config edit
+
+GROQ_API_KEY={api_key}
+
+TOGGLE_RECORDING_HOTKEY={toggle_hotkey}
+
+RETRY_TRANSCRIPTION_HOTKEY={retry_hotkey}
+
+CANCEL_RECORDING_HOTKEY={cancel_hotkey}
+
+TRANSCRIPTION_LANGUAGE={language}
+
+TRANSCRIPTION_OUTPUT={output}
+"""
+
+    config_file.write_text(config_content)
+
+    click.echo()
+    click.secho("✅ Configuration saved!", fg="green", bold=True)
+    click.echo(f"   Config file: {config_file}")
+    click.echo()
+
+    # Validate config
+    try:
+        read_env()
+    except ConfigErrors as e:
+        click.secho(f"⚠️  Config validation warning:\n{e}", fg="yellow")
+        click.echo("   Run 'whisper-assistant config edit' to fix.")
+        return
+
+    # Offer to start daemon
+    if click.confirm("Start whisper-assistant now?", default=True):
+        click.echo()
+        _start_daemon()
+        click.echo()
+        click.secho("🎉 You're all set!", fg="cyan", bold=True)
+        click.echo(f"   Press {toggle_hotkey} to start recording")
+        click.echo(f"   Press {toggle_hotkey} again to stop and transcribe")
+    else:
+        click.echo()
+        click.echo("Run 'whisper-assistant start' when ready.")
+
+
 def _start_daemon():
     """Internal function to start the daemon. Returns True on success, False on failure."""
     if is_running():
