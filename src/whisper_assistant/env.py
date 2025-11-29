@@ -1,12 +1,11 @@
 import os
-from pathlib import Path
 from dataclasses import dataclass, fields
 import logging
 from typing import Set, Union, Optional
 from pynput import keyboard
 from dotenv import load_dotenv
-import shutil
-import click
+
+from whisper_assistant.paths import get_config_file
 
 logger = logging.getLogger(__name__)
 
@@ -135,13 +134,8 @@ def _parse_hotkey(
 
 
 def read_env():
-    env_file = Path.cwd() / ".env"
-    if not env_file.exists():
-        # Copy .env.example to .env
-        shutil.copy(Path.cwd() / ".env.example", env_file)
-        logger.info("No .env file found. Copied .env.example to .env")
-
-    load_dotenv(override=True)
+    config_file = get_config_file()
+    load_dotenv(config_file, override=True)
 
     errors: list[ConfigError] = []
 

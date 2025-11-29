@@ -1,12 +1,13 @@
 import logging
 import logging.handlers
-import os
+
+from whisper_assistant.paths import get_log_dir
 
 # Setup logging with dual handlers: console (INFO) and files (DEBUG and INFO)
 log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-log_dir = os.path.dirname(os.path.dirname(__file__))
-debug_log_file = os.path.join(log_dir, "logs.debug.log")
-info_log_file = os.path.join(log_dir, "logs.info.log")
+log_dir = get_log_dir()
+debug_log_file = log_dir / "debug.log"
+info_log_file = log_dir / "info.log"
 
 # Configure root logger
 root_logger = logging.getLogger()

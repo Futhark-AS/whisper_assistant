@@ -500,8 +500,8 @@ wheels = [
 
 [[package]]
 name = "whisper-assistant"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.1.5"
+source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "groq" },
@@ -515,12 +515,12 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = "==8.1.7" },
-    { name = "groq", specifier = "==0.9.0" },
-    { name = "numpy", specifier = "==1.26.4" },
-    { name = "pyaudio", specifier = "==0.2.14" },
-    { name = "pynput", specifier = "==1.7.6" },
-    { name = "pyperclip", specifier = "==1.8.2" },
-    { name = "python-dotenv", specifier = "==1.0.1" },
-    { name = "soundfile", specifier = "==0.12.1" },
+    { name = "click", specifier = ">=8.1.7" },
+    { name = "groq", specifier = ">=0.9.0" },
+    { name = "numpy", specifier = ">=1.26.4" },
+    { name = "pyaudio", specifier = ">=0.2.14" },
+    { name = "pynput", specifier = ">=1.7.6" },
+    { name = "pyperclip", specifier = ">=1.8.2" },
+    { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "soundfile", specifier = ">=0.12.1" },
 ]

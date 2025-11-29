@@ -1,18 +1,19 @@
 import logging
 import threading
-from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
-from env import read_env
-import log_config  # Import logging configuration
-from packages.audio_recorder import AudioRecorder
-from packages.transcriber import Transcriber
-from packages.keyboard_listener import KeyboardListener
-from packages.notifications import Notifier
+from pathlib import Path
+
+from whisper_assistant.env import read_env
+from whisper_assistant.paths import get_history_dir
+from whisper_assistant import log_config  # Import logging configuration
+from whisper_assistant.packages.audio_recorder import AudioRecorder
+from whisper_assistant.packages.transcriber import Transcriber
+from whisper_assistant.packages.keyboard_listener import KeyboardListener
+from whisper_assistant.packages.notifications import Notifier
 
 logger = logging.getLogger(__name__)
 
-HISTORY_DIR = Path("history")
+HISTORY_DIR = get_history_dir()
 
 
 class WhisperApp:
@@ -20,16 +21,15 @@ class WhisperApp:
 
     def __init__(self):
         """Initialize the application components."""
-        load_dotenv(override=True)
+        # Load config first (this loads from XDG config path)
+        self.env = read_env()
+        logger.info(f"init config: \n{self.env}")
 
         self.notifier = Notifier()
         self.recorder = AudioRecorder(notifier=self.notifier)
         self.transcriber = Transcriber()
         self.keyboard_listener = KeyboardListener()
         self.last_audio_file = None
-        self.env = read_env()
-
-        logger.info(f"init config: \n{self.env}")
 
     def stop_recording(self):
         """Stop the current recording."""

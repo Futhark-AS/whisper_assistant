@@ -1,4 +1,4 @@
-# Whisper Assistant
+# Whisper Assistant :D 
 
 A lightweight, globally accessible voice-to-text tool powered by Groq's fast inference API.
 

@@ -1,4 +1,5 @@
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -6,13 +7,21 @@ import time
 
 import click
 from pathlib import Path
-from env import read_env, ConfigErrors
-from packages.transcriber import Transcriber
+
+from whisper_assistant import __version__
+from whisper_assistant.env import read_env, ConfigErrors
+from whisper_assistant.paths import (
+    get_config_file,
+    get_history_dir,
+    get_log_dir,
+    get_pid_file,
+)
+from whisper_assistant.packages.transcriber import Transcriber
 
 # Constants
-HISTORY_DIR = Path("history")
-PID_FILE = Path("whisper_assistant.pid")
-STDERR_LOG = Path("logs.stderr.log")
+HISTORY_DIR = get_history_dir()
+PID_FILE = get_pid_file()
+STDERR_LOG = get_log_dir() / "stderr.log"
 
 
 def get_pid():
@@ -40,6 +49,11 @@ def is_running():
 
 
 @click.group()
+@click.version_option(
+    version=__version__,
+    prog_name="whisper-assistant",
+    message="%(prog)s %(version)s\n\nTo upgrade: uvx --refresh whisper-assistant --version",
+)
 def cli():
     """Whisper Assistant CLI."""
     pass
@@ -52,18 +66,13 @@ def _start_daemon():
         click.echo(f"Whisper Assistant is already running (PID: {pid})")
         return False
 
-    # Get the path to the main.py script
-    # Assuming cli.py is in src/, main.py is also in src/
-    current_dir = Path(__file__).parent
-    script_path = current_dir / "main.py"
-
     # Start daemon process
     try:
         # Use sys.executable to ensure we use the same Python interpreter
         # Redirect stderr to a file so we can check for startup errors
         stderr_file = open(STDERR_LOG, "w")
         process = subprocess.Popen(
-            [sys.executable, str(script_path)],
+            [sys.executable, "-m", "whisper_assistant.main"],
             stdout=subprocess.DEVNULL,
             stderr=stderr_file,
             start_new_session=True,  # Detach from parent process
@@ -176,7 +185,7 @@ def logs(lines, stderr):
     if stderr:
         log_file = STDERR_LOG
     else:
-        log_file = Path("logs.info.log")
+        log_file = get_log_dir() / "info.log"
 
     if not log_file.exists():
         click.echo(f"Log file not found: {log_file}")
@@ -296,6 +305,36 @@ def history_transcribe(n, language):
     _transcribe_audio(recordings[-n], language)
 
 
+@history.command(name="play")
+@click.argument("n", type=int)
+def history_play(n):
+    """Play the Nth most recent recording (1 = latest)."""
+    if not shutil.which("afplay"):
+        click.echo(
+            "afplay not found. This command requires macOS with afplay installed.",
+            err=True,
+        )
+        sys.exit(1)
+
+    if n < 1:
+        click.echo("N must be at least 1", err=True)
+        sys.exit(1)
+
+    recordings = _get_all_recordings()
+
+    if not recordings:
+        click.echo("No recordings found", err=True)
+        sys.exit(1)
+
+    if n > len(recordings):
+        click.echo(f"Only {len(recordings)} recordings available", err=True)
+        sys.exit(1)
+
+    audio_path = recordings[-n]
+    click.echo(f"Playing {audio_path}...")
+    subprocess.run(["afplay", str(audio_path)])
+
+
 @cli.group()
 def config():
     """Manage configuration."""
@@ -318,8 +357,7 @@ def config_show():
 )
 def config_edit(editor):
     """Edit configuration in your default editor. Restarts daemon if running."""
-    # Find .env file in workspace root
-    env_file = Path.cwd() / ".env"
+    env_file = get_config_file()
 
     # Check if daemon is running
     was_running = is_running()
