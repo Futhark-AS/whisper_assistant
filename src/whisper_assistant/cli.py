@@ -342,25 +342,25 @@ def _transcribe_audio(audio_path: Path, language: str | None):
 
 
 @cli.command()
-@click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--language",
     default=None,
     help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
 )
-def transcribe(audio_file, language):
-    """Transcribe an audio file. Can be any audio file on your system."""
-    audio_path = Path(audio_file).resolve()
+def transcribe(file, language):
+    """Transcribe an audio or video file."""
+    file_path = Path(file).resolve()
 
-    if not audio_path.exists():
-        click.echo(f"Audio file not found: {audio_path}", err=True)
+    if not file_path.exists():
+        click.echo(f"File not found: {file_path}", err=True)
         sys.exit(1)
 
-    if not audio_path.is_file():
-        click.echo(f"Path is not a file: {audio_path}", err=True)
+    if not file_path.is_file():
+        click.echo(f"Path is not a file: {file_path}", err=True)
         sys.exit(1)
 
-    _transcribe_audio(audio_path, language)
+    _transcribe_audio(file_path, language)
 
 
 @cli.group()
