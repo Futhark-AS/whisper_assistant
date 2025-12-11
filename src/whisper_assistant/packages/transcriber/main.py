@@ -11,6 +11,32 @@ from groq import Groq
 logger = logging.getLogger(__name__)
 
 
+# Known Whisper hallucinations to remove from transcriptions
+HALLUCINATION_PATTERNS = [
+    "Teksting av Nicolai Winther",
+]
+
+
+def _clean_hallucinations(text: str) -> tuple[str, int]:
+    """Remove known Whisper hallucinations from text.
+
+    Returns:
+        tuple of (cleaned_text, total_removals)
+    """
+    total_removed = 0
+    for pattern in HALLUCINATION_PATTERNS:
+        count = text.count(pattern)
+        if count > 0:
+            text = text.replace(pattern, "")
+            total_removed += count
+    # Clean up any double spaces or newlines left behind
+    while "  " in text:
+        text = text.replace("  ", " ")
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text.strip(), total_removed
+
+
 def _format_timestamp(seconds: float) -> str:
     """Format seconds as HH:MM:SS or MM:SS timestamp."""
     hours = int(seconds // 3600)
@@ -256,6 +282,12 @@ class Transcriber:
                     audio_data, sample_rate, prompt=prompt, language=language
                 )
                 logger.debug(f"Transcription result: {transcript_text}")
+                # Clean hallucinations
+                transcript_text, removed_count = _clean_hallucinations(transcript_text)
+                if removed_count > 0:
+                    print(
+                        f"Removed {removed_count} hallucination(s) from transcription"
+                    )
                 return transcript_text
             except Exception as e:
                 logger.error(f"Error during transcription: {e}")
@@ -336,6 +368,11 @@ class Transcriber:
                         print(f"END OF PREVIOUS CHUNK:\n  ...{end_prev}")
                         print(f"\nSTART OF NEXT CHUNK:\n  {start_next}...")
                     print("\n" + "=" * 60 + "\n")
+
+            # Clean hallucinations
+            combined_text, removed_count = _clean_hallucinations(combined_text)
+            if removed_count > 0:
+                print(f"Removed {removed_count} hallucination(s) from transcription")
 
             logger.debug(f"Combined transcription length: {len(combined_text)} chars")
             return combined_text
