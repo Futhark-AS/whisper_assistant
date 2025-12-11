@@ -303,6 +303,7 @@ class Transcriber:
             else:
                 parts = []
                 chunk_time = 0.0
+                intersection_contexts = []
                 for i, text in enumerate(transcriptions):
                     parts.append(text)
                     chunk_time += len(chunks[i]) / sample_rate
@@ -311,7 +312,30 @@ class Transcriber:
                         timestamp = _format_timestamp(chunk_time)
                         marker = f"\n\n[CHUNK BREAK @ {timestamp} - audio was split here, check for cut words/sentences]\n\n"
                         parts.append(marker)
+                        # Store context around this intersection for later display
+                        # Estimate ~15 sec of text: roughly 40 words/min speaking = ~10 words in 15 sec
+                        # Average ~6 chars/word = ~60 chars, but be generous with ~300 chars
+                        chars_for_15_sec = 300
+                        end_of_prev = transcriptions[i][-chars_for_15_sec:].strip()
+                        start_of_next = transcriptions[i + 1][:chars_for_15_sec].strip()
+                        intersection_contexts.append(
+                            (timestamp, end_of_prev, start_of_next)
+                        )
                 combined_text = "".join(parts)
+
+                # Print intersection contexts at the end for easy copy-paste fixing
+                if intersection_contexts:
+                    print("\n" + "=" * 60)
+                    print("CHUNK BOUNDARY CONTEXTS (±15 sec of text around each break)")
+                    print(
+                        "Copy-paste these if transcription looks weird at boundaries:"
+                    )
+                    print("=" * 60)
+                    for timestamp, end_prev, start_next in intersection_contexts:
+                        print(f"\n--- @ {timestamp} ---")
+                        print(f"END OF PREVIOUS CHUNK:\n  ...{end_prev}")
+                        print(f"\nSTART OF NEXT CHUNK:\n  {start_next}...")
+                    print("\n" + "=" * 60 + "\n")
 
             logger.debug(f"Combined transcription length: {len(combined_text)} chars")
             return combined_text
