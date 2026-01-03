@@ -101,7 +101,9 @@ def extract_audio_from_video(video_path: Path) -> Path:
     return temp_wav
 
 
-def split_audio_into_chunks(audio_data, sample_rate: int) -> list[tuple[np.ndarray, float]]:
+def split_audio_into_chunks(
+    audio_data, sample_rate: int
+) -> list[tuple[np.ndarray, float]]:
     """
     Split audio data into chunks of CHUNK_DURATION_SECONDS.
 
@@ -153,24 +155,26 @@ def transcribe_audio_data(
     for seg in transcript.segments:
         # Handle both dict and object access patterns
         if isinstance(seg, dict):
-            segments.append({
-                "start": seg["start"],
-                "end": seg["end"],
-                "text": seg["text"],
-            })
+            segments.append(
+                {
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "text": seg["text"],
+                }
+            )
         else:
-            segments.append({
-                "start": seg.start,
-                "end": seg.end,
-                "text": seg.text,
-            })
+            segments.append(
+                {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text,
+                }
+            )
 
     return segments
 
 
-def diarize_audio_data(
-    audio_data, sample_rate: int, pipeline: Pipeline
-) -> list[dict]:
+def diarize_audio_data(audio_data, sample_rate: int, pipeline: Pipeline) -> list[dict]:
     """
     Run speaker diarization on audio data (numpy array).
 
@@ -185,7 +189,9 @@ def diarize_audio_data(
     waveform = torch.tensor(audio_data, dtype=torch.float32).unsqueeze(0)
 
     # Run diarization with 2 speakers for interview format
-    diarization = pipeline({"waveform": waveform, "sample_rate": sample_rate}, num_speakers=2)
+    diarization = pipeline(
+        {"waveform": waveform, "sample_rate": sample_rate}, num_speakers=2
+    )
 
     # Handle both Annotation return type and DiarizeOutput wrapper
     if hasattr(diarization, "itertracks"):
@@ -199,11 +205,13 @@ def diarize_audio_data(
 
     segments = []
     for turn, _, speaker in annotation.itertracks(yield_label=True):
-        segments.append({
-            "speaker": speaker,
-            "start": turn.start,
-            "end": turn.end,
-        })
+        segments.append(
+            {
+                "speaker": speaker,
+                "start": turn.start,
+                "end": turn.end,
+            }
+        )
 
     return segments
 
@@ -260,7 +268,9 @@ def process_audio_chunked(
     # Long audio - split into chunks
     chunks = split_audio_into_chunks(audio_data, sample_rate)
     num_chunks = len(chunks)
-    print(f"\nSplitting into {num_chunks} chunks of ~{CHUNK_DURATION_SECONDS / 60:.0f} minutes each")
+    print(
+        f"\nSplitting into {num_chunks} chunks of ~{CHUNK_DURATION_SECONDS / 60:.0f} minutes each"
+    )
 
     all_whisper_segments = []
     all_diarization_segments = []
@@ -268,20 +278,26 @@ def process_audio_chunked(
 
     for i, (chunk_data, time_offset) in enumerate(chunks):
         chunk_duration_min = len(chunk_data) / sample_rate / 60
-        print(f"\n--- Chunk {i + 1}/{num_chunks} ({chunk_duration_min:.1f} min, offset {time_offset / 60:.1f} min) ---")
+        print(
+            f"\n--- Chunk {i + 1}/{num_chunks} ({chunk_duration_min:.1f} min, offset {time_offset / 60:.1f} min) ---"
+        )
 
         # Transcribe chunk
         print("  Transcribing...")
-        chunk_whisper = transcribe_audio_data(chunk_data, sample_rate, language, prompt=current_prompt)
+        chunk_whisper = transcribe_audio_data(
+            chunk_data, sample_rate, language, prompt=current_prompt
+        )
         print(f"  Transcription: {len(chunk_whisper)} segments")
 
         # Adjust timestamps and add to results
         for seg in chunk_whisper:
-            all_whisper_segments.append({
-                "start": seg["start"] + time_offset,
-                "end": seg["end"] + time_offset,
-                "text": seg["text"],
-            })
+            all_whisper_segments.append(
+                {
+                    "start": seg["start"] + time_offset,
+                    "end": seg["end"] + time_offset,
+                    "text": seg["text"],
+                }
+            )
 
         # Use end of this chunk's text as context for next chunk
         if chunk_whisper:
@@ -295,13 +311,17 @@ def process_audio_chunked(
 
         # Adjust timestamps and add to results
         for seg in chunk_diarization:
-            all_diarization_segments.append({
-                "speaker": seg["speaker"],
-                "start": seg["start"] + time_offset,
-                "end": seg["end"] + time_offset,
-            })
+            all_diarization_segments.append(
+                {
+                    "speaker": seg["speaker"],
+                    "start": seg["start"] + time_offset,
+                    "end": seg["end"] + time_offset,
+                }
+            )
 
-    print(f"\nTotal: {len(all_whisper_segments)} transcription segments, {len(all_diarization_segments)} diarization segments")
+    print(
+        f"\nTotal: {len(all_whisper_segments)} transcription segments, {len(all_diarization_segments)} diarization segments"
+    )
     return all_whisper_segments, all_diarization_segments
 
 
@@ -339,12 +359,14 @@ def merge_transcription_with_diarization(
             seg["end"],
             diarization_segments,
         )
-        labeled_segments.append({
-            "speaker": speaker,
-            "start": seg["start"],
-            "end": seg["end"],
-            "text": seg["text"],
-        })
+        labeled_segments.append(
+            {
+                "speaker": speaker,
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"],
+            }
+        )
 
     return labeled_segments
 
@@ -428,7 +450,9 @@ def main():
         # Handle video files
         if is_video_file(file_path):
             if not check_ffmpeg_available():
-                print("Error: ffmpeg is required for video files. Install with: brew install ffmpeg")
+                print(
+                    "Error: ffmpeg is required for video files. Install with: brew install ffmpeg"
+                )
                 sys.exit(1)
             print(f"Extracting audio from video: {file_path.name}")
             temp_audio = extract_audio_from_video(file_path)
@@ -438,7 +462,9 @@ def main():
         print("\n" + "=" * 60)
         print("Processing audio (transcription + diarization)")
         print("=" * 60)
-        whisper_segments, diarization_segments = process_audio_chunked(audio_path, language="no")
+        whisper_segments, diarization_segments = process_audio_chunked(
+            audio_path, language="no"
+        )
 
         # Merge results
         print("\n" + "=" * 60)
