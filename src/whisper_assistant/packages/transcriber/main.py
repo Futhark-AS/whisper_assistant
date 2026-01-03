@@ -57,10 +57,18 @@ CHUNK_DURATION_SECONDS = 10 * 60  # 10 minutes
 # Video file extensions that we can extract audio from
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".flv", ".wmv"}
 
+# Audio formats that require ffmpeg conversion (not natively supported by libsndfile)
+FFMPEG_AUDIO_EXTENSIONS = {".m4a", ".aac", ".wma", ".opus", ".mp3"}
+
 
 def _is_video_file(path: Path) -> bool:
     """Check if a file is a video file based on extension."""
     return path.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def _needs_ffmpeg_conversion(path: Path) -> bool:
+    """Check if an audio file needs ffmpeg conversion (format not supported by libsndfile)."""
+    return path.suffix.lower() in FFMPEG_AUDIO_EXTENSIONS
 
 
 def _check_ffmpeg_available() -> bool:
@@ -232,7 +240,7 @@ class Transcriber:
             f"Transcribing file: {file_path} (language: {language or 'inferred'})"
         )
 
-        # Handle video files by extracting audio first
+        # Handle video files or unsupported audio formats by converting with ffmpeg
         if _is_video_file(file_path):
             if not _check_ffmpeg_available():
                 raise RuntimeError(
@@ -241,6 +249,15 @@ class Transcriber:
                 )
             logger.info(f"Extracting audio from video: {file_path.name}")
             temp_audio = _extract_audio_from_video(file_path)
+            audio_path = temp_audio
+        elif _needs_ffmpeg_conversion(file_path):
+            if not _check_ffmpeg_available():
+                raise RuntimeError(
+                    f"To transcribe {file_path.suffix} files, ffmpeg must be installed. "
+                    "Install with: brew install ffmpeg"
+                )
+            logger.info(f"Converting audio format: {file_path.name}")
+            temp_audio = _extract_audio_from_video(file_path)  # Same conversion works
             audio_path = temp_audio
         else:
             audio_path = file_path
