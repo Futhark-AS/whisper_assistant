@@ -50,9 +50,10 @@ def _format_timestamp(seconds: float) -> str:
 
 # Chunking configuration (in seconds)
 # Only chunk audio files longer than this threshold
-MIN_DURATION_FOR_CHUNKING_SECONDS = 10 * 60  # 10 minutes
+# Groq Whisper API has a ~25MB file size limit, which is roughly 4-5 minutes of 16kHz mono WAV
+MIN_DURATION_FOR_CHUNKING_SECONDS = 4 * 60  # 4 minutes
 # Size of each chunk when splitting long audio
-CHUNK_DURATION_SECONDS = 10 * 60  # 10 minutes
+CHUNK_DURATION_SECONDS = 4 * 60  # 4 minutes
 
 # Video file extensions that we can extract audio from
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".flv", ".wmv"}
@@ -179,6 +180,13 @@ class Transcriber:
         audio_bytes.seek(0)
         audio_bytes.name = "audio.wav"
 
+        # Log audio info for debugging
+        audio_size_mb = audio_bytes.getbuffer().nbytes / (1024 * 1024)
+        audio_duration_sec = len(audio_data) / sample_rate
+        logger.debug(
+            f"Sending audio to API: {audio_duration_sec:.1f}s, {audio_size_mb:.2f}MB"
+        )
+
         # Prepare arguments
         kwargs = {
             "file": ("audio.wav", audio_bytes),
@@ -192,8 +200,22 @@ class Transcriber:
         if language:
             kwargs["language"] = language
 
-        transcript = self.client.audio.transcriptions.create(**kwargs)
-        return transcript.text
+        try:
+            transcript = self.client.audio.transcriptions.create(**kwargs)
+            return transcript.text
+        except Exception as e:
+            error_msg = str(e)
+            if "413" in error_msg or "request_too_large" in error_msg.lower():
+                logger.error(
+                    f"Audio chunk too large for API ({audio_size_mb:.2f}MB, {audio_duration_sec:.1f}s). "
+                    f"Consider reducing chunk_duration. Error: {error_msg}"
+                )
+                raise RuntimeError(
+                    f"Audio chunk too large for Groq API ({audio_size_mb:.2f}MB, {audio_duration_sec:.1f}s). "
+                    f"The API limit is ~25MB. Try with shorter audio or contact maintainer."
+                ) from e
+            logger.error(f"Transcription API error: {error_msg}")
+            raise
 
     def _split_audio_into_chunks(self, audio_data, sample_rate):
         """
@@ -285,15 +307,25 @@ class Transcriber:
         # Read audio file
         audio_data, sample_rate = sf.read(audio_file_path)
 
-        # Calculate duration
+        # Calculate duration and estimate file size
         duration_seconds = len(audio_data) / sample_rate
         duration_min = duration_seconds / 60
-        logger.debug(f"Audio duration: {duration_seconds:.1f} seconds")
-        print(f"Audio duration: {duration_min:.1f} minutes")
+        # Estimate WAV size: samples * bytes_per_sample (2 for 16-bit)
+        estimated_size_mb = (len(audio_data) * 2) / (1024 * 1024)
+        logger.debug(
+            f"Audio: {duration_seconds:.1f}s, ~{estimated_size_mb:.1f}MB, "
+            f"sample_rate={sample_rate}, samples={len(audio_data)}"
+        )
+        print(
+            f"Audio duration: {duration_min:.1f} minutes (~{estimated_size_mb:.1f}MB)"
+        )
 
         # Check if we need to chunk
         if duration_seconds <= self.min_duration_for_chunking:
             # Short audio - transcribe directly
+            logger.debug(
+                f"Audio under {self.min_duration_for_chunking}s threshold, transcribing directly"
+            )
             try:
                 transcript_text = self._transcribe_audio_data(
                     audio_data, sample_rate, prompt=prompt, language=language
