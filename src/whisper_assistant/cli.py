@@ -207,11 +207,29 @@ GROQ_TIMEOUT={groq_timeout}
         _start_daemon()
         click.echo()
         click.secho("🎉 You're all set!", fg="cyan", bold=True)
-        click.echo(f"   Press {toggle_hotkey} to start recording")
-        click.echo(f"   Press {toggle_hotkey} again to stop and transcribe")
     else:
         click.echo()
         click.echo("Run 'whisper-assistant start' when ready.")
+
+
+def _print_hotkey_info() -> None:
+    """Print hotkey bindings and config location after daemon start."""
+    try:
+        from dotenv import dotenv_values
+
+        config = dotenv_values(get_config_file())
+        toggle = config.get("TOGGLE_RECORDING_HOTKEY", "ctrl+shift+1")
+        retry = config.get("RETRY_TRANSCRIPTION_HOTKEY", "ctrl+shift+2")
+        cancel = config.get("CANCEL_RECORDING_HOTKEY", "ctrl+shift+3")
+        click.echo()
+        click.secho("  Hotkeys:", bold=True)
+        click.echo(f"    Toggle recording:     {toggle}")
+        click.echo(f"    Retry transcription:  {retry}")
+        click.echo(f"    Cancel recording:     {cancel}")
+        click.echo()
+        click.echo("  Change hotkeys: whisper-assistant config edit")
+    except Exception:
+        pass
 
 
 def _start_daemon() -> bool:
@@ -255,6 +273,7 @@ def _start_daemon() -> bool:
             return False
 
         click.echo(f"Whisper Assistant started (PID: {process.pid})")
+        _print_hotkey_info()
         return True
     except Exception as e:
         click.echo(f"Failed to start Whisper Assistant: {e}", err=True)
