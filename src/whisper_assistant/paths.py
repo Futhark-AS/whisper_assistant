@@ -25,6 +25,10 @@ CANCEL_RECORDING_HOTKEY=ctrl+shift+3
 TRANSCRIPTION_LANGUAGE=auto
 
 TRANSCRIPTION_OUTPUT=paste_on_cursor
+
+WHISPER_MODEL=whisper-large-v3-turbo
+
+GROQ_TIMEOUT=60
 """
 
 
@@ -47,12 +51,13 @@ def get_state_dir() -> Path:
 
 
 def get_config_file() -> Path:
-    """Get config file path, creating default if needed."""
+    """Get config file path, creating default if needed. Secured with chmod 600."""
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     config_file = config_dir / "config.env"
     if not config_file.exists():
         config_file.write_text(DEFAULT_CONFIG)
+        config_file.chmod(0o600)
     return config_file
 
 

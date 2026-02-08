@@ -1,183 +1,211 @@
 import logging
+import subprocess
 import threading
 from datetime import datetime
-from pathlib import Path
 
+import numpy as np
+import soundfile as sf
+from pynput.keyboard import Controller, Key, KeyCode
+
+from whisper_assistant import log_config  # noqa: F401 — logging side-effect
 from whisper_assistant.env import read_env
-from whisper_assistant.paths import get_history_dir
-from whisper_assistant import log_config  # Import logging configuration
 from whisper_assistant.packages.audio_recorder import AudioRecorder
-from whisper_assistant.packages.transcriber import Transcriber
 from whisper_assistant.packages.keyboard_listener import KeyboardListener
 from whisper_assistant.packages.notifications import Notifier
+from whisper_assistant.packages.transcriber import Transcriber
+from whisper_assistant.paths import get_history_dir
 
 logger = logging.getLogger(__name__)
 
 HISTORY_DIR = get_history_dir()
 
+# macOS system sounds
+SOUND_HERO = "/System/Library/Sounds/Hero.aiff"
+SOUND_MORSE = "/System/Library/Sounds/Morse.aiff"
+SOUND_GLASS = "/System/Library/Sounds/Glass.aiff"
+SOUND_BASSO = "/System/Library/Sounds/Basso.aiff"
+
 
 class WhisperApp:
     """Main application orchestrating keyboard listener, audio recorder, and transcriber."""
 
-    def __init__(self):
-        """Initialize the application components."""
-        # Load config first (this loads from XDG config path)
+    def __init__(self) -> None:
         self.env = read_env()
-        logger.info(f"init config: \n{self.env}")
+        logger.info(f"Config:\n{self.env}")
 
         self.notifier = Notifier()
-        self.recorder = AudioRecorder(notifier=self.notifier)
-        self.transcriber = Transcriber()
+        self.recorder = AudioRecorder()
+        self.transcriber = Transcriber(
+            model=self.env.WHISPER_MODEL,
+            timeout=self.env.GROQ_TIMEOUT,
+        )
         self.keyboard_listener = KeyboardListener()
-        self.last_audio_file = None
+        self._keyboard_controller = Controller()
+        self._recording_lock = threading.Lock()
+        self.last_recording_data: tuple[np.ndarray, int] | None = None
 
-    def stop_recording(self):
-        """Stop the current recording."""
-        if not self.recorder.is_recording():
-            logger.debug("Stop command ignored: Not recording")
+    # ── Public API (hotkey callbacks) ────────────────────────────────
+
+    def toggle_recording(self) -> None:
+        """Callback for toggle recording hotkey."""
+        if self.recorder.is_recording():
+            logger.info("Stopping recording...")
+            self.recorder.stop_recording()
             return
 
-        logger.info("Stopping recording...")
-        self.recorder.stop_recording()
+        if not self._recording_lock.acquire(blocking=False):
+            logger.debug("Toggle ignored: recording flow already running")
+            return
 
-    def cancel_recording(self):
+        logger.info("Starting recording process...")
+        thread = threading.Thread(target=self._recording_flow, daemon=True)
+        thread.start()
+
+    def cancel_recording(self) -> None:
         """Cancel the current recording without transcribing."""
         if not self.recorder.is_recording():
-            logger.debug("Cancel command ignored: Not recording")
+            logger.debug("Cancel ignored: not recording")
             return
 
         logger.info("Cancelling recording...")
         self.recorder.cancel_recording()
-        self.notifier.show_alert("Recording cancelled", "Whisper Assistant")
-        self.notifier.play_sound("/System/Library/Sounds/Basso.aiff", volume=25)
+        self.notifier.notify_info("Recording cancelled", SOUND_BASSO)
 
-    def toggle_recording(self):
-        """Callback for toggle recording hotkey."""
-        if self.recorder.is_recording():
-            self.stop_recording()
-        else:
-            logger.info("Starting recording process...")
-            # Run recording in a separate thread to avoid blocking the keyboard listener
-            threading.Thread(target=self._recording_flow).start()
+    def retry_transcription(self) -> None:
+        """Re-transcribe the last recorded audio."""
+        if self.last_recording_data is None:
+            logger.warning("No previous recording to retry")
+            return
 
-    def retry_transcription(self):
-        """Callback for retry transcription hotkey."""
-        if self.last_audio_file:
-            logger.info(f"Retrying transcription of: {self.last_audio_file}")
-            self.transcribe_file(
-                self.last_audio_file, language=self.env.TRANSCRIPTION_LANGUAGE
-            )
-        else:
-            logger.warning("No previous audio file to retry transcription")
+        audio_data, sample_rate = self.last_recording_data
+        logger.info("Retrying transcription of last recording")
+        self.notifier.notify_info("Retrying transcription...", SOUND_MORSE)
+        threading.Thread(
+            target=self._transcribe_and_output,
+            args=(audio_data, sample_rate),
+            daemon=True,
+        ).start()
 
-    def _get_today_history_dir(self):
-        """Get or create today's history directory."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        history_path = HISTORY_DIR / today
-        history_path.mkdir(parents=True, exist_ok=True)
-        return history_path
+    # ── Recording flow (runs in worker thread) ───────────────────────
 
-    def _recording_flow(self):
-        """
-        Handles the recording process: record -> save -> transcribe.
-        This runs in a separate thread.
-        """
-        # Get today's history directory
-        history_dir = self._get_today_history_dir()
-
-        # Generate timestamp folder name (HHMMSS format, no separators)
-        timestamp = datetime.now().strftime("%H%M%S")
-        entry_dir = history_dir / timestamp
-        entry_dir.mkdir(parents=True, exist_ok=True)
-
-        # Audio file path: history/YYYY-MM-DD/HHMMSS/recording.wav
-        audio_path = entry_dir / "recording.wav"
-
-        # This blocks until stop_recording() is called
-        # The AudioRecorder will notify when recording actually starts
-        file_path = self.recorder.start_recording(
-            output_path=str(audio_path),
-            notification_message=f"Recording with lang={self.env.TRANSCRIPTION_LANGUAGE}",
-        )
-
-        logger.info("Recording completed")
-
-        if file_path:
-            self.last_audio_file = file_path
-            logger.info("Transcribing recording...")
-            self.transcribe_file(file_path, language=self.env.TRANSCRIPTION_LANGUAGE)
-        else:
-            logger.info(
-                "Recording completed but no file path was returned, skipping transcription"
-            )
-
-    def transcribe_file(self, audio_file_path, language):
-        """Transcribe audio file and output the result."""
+    def _recording_flow(self) -> None:
+        """Record → transcribe → output. Runs in a worker thread."""
         try:
-            text = self.transcriber.transcribe(audio_file_path, language=language)
+            # Notify user recording is starting (async — doesn't block stream open)
+            self.notifier.notify_info("Recording...", SOUND_HERO)
 
-            if text:
-                self._output_transcription(text)
-                # Save transcription to file
-                self._save_transcription(audio_file_path, text)
-                # Notify user that transcription is complete
-                self.notify_completion()
-            else:
+            result = self.recorder.start_recording()
+
+            if result is None:
+                logger.info("Recording returned no data (cancelled or error)")
+                return
+
+            audio_data, sample_rate = result
+            self.last_recording_data = result
+
+            # Immediate feedback: "processing..."
+            self.notifier.notify_info("Processing...", SOUND_MORSE)
+
+            self._transcribe_and_output(audio_data, sample_rate)
+
+        except Exception:
+            logger.exception("Recording flow error")
+            self.notifier.notify_error("Recording failed — see logs")
+        finally:
+            self._recording_lock.release()
+
+    def _transcribe_and_output(self, audio_data: np.ndarray, sample_rate: int) -> None:
+        """Transcribe audio array and output the result."""
+        try:
+            text = self.transcriber.transcribe_from_array(
+                audio_data,
+                sample_rate,
+                language=self.env.TRANSCRIPTION_LANGUAGE,
+            )
+
+            if not text or not text.strip():
                 logger.info("Transcription returned empty result")
+                self.notifier.notify_info("No speech detected")
+                return
 
-        except Exception as e:
-            logger.error(f"Error during transcription: {e}", exc_info=True)
+            self._output_transcription(text)
+            self.notifier.notify_info("Transcription complete", SOUND_GLASS)
 
-    def _save_transcription(self, audio_file_path, text):
-        """Save transcription text to a file alongside the audio file."""
-        try:
-            # Save as transcription.txt in the same directory as recording.wav
-            audio_path = Path(audio_file_path)
-            transcription_path = audio_path.parent / "transcription.txt"
-            with open(transcription_path, "w", encoding="utf-8") as f:
-                f.write(text)
-            logger.debug(f"Transcription saved to {transcription_path}")
-        except Exception as e:
-            logger.error(f"Error saving transcription: {e}", exc_info=True)
+            # Save history in background — never blocks user
+            self._save_to_history_async(audio_data, sample_rate, text)
 
-    def _output_transcription(self, text):
-        """Output transcription based on configured output modes."""
-        print(f"\n{'=' * 60}")
-        print(f"Transcription:")
-        print(f"{text}")
-        print(f"{'=' * 60}\n")
+        except Exception:
+            logger.exception("Transcription error")
+            self.notifier.notify_error("Transcription failed — see logs")
 
+    # ── Output ───────────────────────────────────────────────────────
+
+    def _output_transcription(self, text: str) -> None:
+        """Copy to clipboard and optionally paste at cursor."""
         output = self.env.TRANSCRIPTION_OUTPUT
 
-        if output.clipboard:
+        if output.clipboard or output.paste_on_cursor:
+            # Copy to clipboard via pbcopy (always needed for Cmd+V paste too)
             try:
-                import pyperclip
-
-                pyperclip.copy(text)
+                subprocess.run(
+                    ["pbcopy"],
+                    input=text.encode(),
+                    check=True,
+                )
                 logger.info("Transcription copied to clipboard")
-            except ImportError:
-                logger.warning("pyperclip not available, skipping clipboard copy")
+            except Exception:
+                logger.exception("Failed to copy to clipboard")
+                return
 
         if output.paste_on_cursor:
             try:
-                from pynput.keyboard import Controller
+                # Simulate Cmd+V — instant regardless of text length
+                with self._keyboard_controller.pressed(Key.cmd):
+                    self._keyboard_controller.tap(KeyCode.from_char("v"))
+                logger.info("Transcription pasted at cursor via Cmd+V")
+            except Exception:
+                logger.exception("Failed to paste at cursor")
 
-                keyboard_controller = Controller()
-                keyboard_controller.type(text)
-                logger.info("Transcription typed at cursor position")
-            except Exception as e:
-                logger.error(f"Failed to type transcription at cursor: {e}")
+    # ── History persistence (fire-and-forget) ────────────────────────
 
-    def notify_completion(self):
-        self.notifier.show_alert("Transcription complete", "Whisper Assistant")
-        self.notifier.play_sound("/System/Library/Sounds/Glass.aiff", volume=25)
+    def _save_to_history_async(
+        self, audio_data: np.ndarray, sample_rate: int, text: str
+    ) -> None:
+        """Spawn a daemon thread to save recording + transcription to history."""
+        threading.Thread(
+            target=self._save_to_history,
+            args=(audio_data, sample_rate, text),
+            daemon=True,
+        ).start()
 
-    def run(self):
+    def _save_to_history(
+        self, audio_data: np.ndarray, sample_rate: int, text: str
+    ) -> None:
+        """Save audio as FLAC and transcription text to history directory."""
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            timestamp = datetime.now().strftime("%H%M%S")
+            entry_dir = HISTORY_DIR / today / timestamp
+            entry_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save audio as FLAC (~4x smaller than WAV)
+            audio_path = entry_dir / "recording.flac"
+            sf.write(str(audio_path), audio_data, sample_rate, format="flac")
+
+            # Save transcription text
+            text_path = entry_dir / "transcription.txt"
+            text_path.write_text(text, encoding="utf-8")
+
+            logger.debug(f"History saved to {entry_dir}")
+        except Exception:
+            logger.exception("Failed to save history")
+
+    # ── Lifecycle ────────────────────────────────────────────────────
+
+    def run(self) -> None:
         """Start the application."""
         logger.info("Starting Whisper Assistant...")
-        logger.info(f"Config: \n{self.env}")
 
-        # Register hotkeys
         self.keyboard_listener.register_hotkey(
             self.env.TOGGLE_RECORDING_HOTKEY, self.toggle_recording
         )
@@ -188,7 +216,6 @@ class WhisperApp:
             self.env.CANCEL_RECORDING_HOTKEY, self.cancel_recording
         )
 
-        # Start listener and block main thread
         self.keyboard_listener.start()
         try:
             self.keyboard_listener.join()
@@ -196,11 +223,10 @@ class WhisperApp:
             logger.info("Shutting down...")
             self.shutdown()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Clean shutdown of all components."""
         if self.recorder.is_recording():
             self.recorder.stop_recording()
-        self.recorder.cleanup()  # Clean up PyAudio instance
         self.keyboard_listener.stop()
 
 

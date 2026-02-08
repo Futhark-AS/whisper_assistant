@@ -7,7 +7,6 @@ Voice-to-text tool powered by Groq's Whisper API. Press a hotkey, speak, and get
 Requires macOS and [uv](https://github.com/astral-sh/uv).
 
 ```bash
-brew install portaudio
 uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git
 whisper-assistant --version  # shows how to upgrade
 whisper-assistant init
@@ -17,6 +16,8 @@ The `init` wizard will:
 1. Ask for your [Groq API key](https://console.groq.com/keys) (free)
 2. Configure hotkeys and preferences
 3. Start the background daemon
+
+> **Note:** macOS Accessibility permissions are required for global hotkeys. Grant access in System Settings → Privacy & Security → Accessibility when prompted.
 
 **Where files are stored** ([XDG Base Directory Specification](https://xdgbasedirectoryspecification.com/)):
 | Path | Contents |
