@@ -16,8 +16,9 @@ root_logger.setLevel(logging.DEBUG)
 
 # Filter to silence httpx/httpcore INFO logs from console only
 class HttpxConsoleFilter(logging.Filter):
-    def filter(self, record):
-        # Allow all logs except INFO level from httpx and httpcore
+    """Filter to silence httpx/httpcore INFO logs from console."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
         if record.name in ("httpx", "httpcore") and record.levelno == logging.INFO:
             return False
         return True
@@ -30,8 +31,7 @@ console_handler.addFilter(HttpxConsoleFilter())
 console_handler.setFormatter(logging.Formatter(log_format))
 
 # Debug file handler - DEBUG level and above
-# Rotates daily at midnight and keeps only 1 backup (today + yesterday)
-# Logs older than 1 day are automatically deleted
+# Rotates daily at midnight, no backups (only current day)
 debug_file_handler = logging.handlers.TimedRotatingFileHandler(
     debug_log_file, when="midnight", interval=1, backupCount=0
 )
@@ -39,8 +39,7 @@ debug_file_handler.setLevel(logging.DEBUG)
 debug_file_handler.setFormatter(logging.Formatter(log_format))
 
 # Info file handler - INFO level and above
-# Rotates daily at midnight and keeps only 1 backup (today + yesterday)
-# Logs older than 1 day are automatically deleted
+# Rotates daily at midnight, no backups (only current day)
 info_file_handler = logging.handlers.TimedRotatingFileHandler(
     info_log_file, when="midnight", interval=1, backupCount=0
 )

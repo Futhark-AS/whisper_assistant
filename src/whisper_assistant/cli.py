@@ -4,19 +4,19 @@ import signal
 import subprocess
 import sys
 import time
-
-import click
 from pathlib import Path
 
+import click
+
 from whisper_assistant import __version__
-from whisper_assistant.env import read_env, ConfigErrors
+from whisper_assistant.env import VALID_WHISPER_MODELS, ConfigErrors, read_env
+from whisper_assistant.packages.transcriber import Transcriber
 from whisper_assistant.paths import (
     get_config_file,
     get_history_dir,
     get_log_dir,
     get_pid_file,
 )
-from whisper_assistant.packages.transcriber import Transcriber
 
 # Constants
 HISTORY_DIR = get_history_dir()
@@ -24,7 +24,7 @@ PID_FILE = get_pid_file()
 STDERR_LOG = get_log_dir() / "stderr.log"
 
 
-def get_pid():
+def get_pid() -> int | None:
     """Get the PID from the PID file, or None if invalid/missing."""
     if not PID_FILE.exists():
         return None
@@ -34,7 +34,7 @@ def get_pid():
         return None
 
 
-def is_running():
+def is_running() -> bool:
     """Check if the daemon is running."""
     pid = get_pid()
     if pid is None:
@@ -54,7 +54,7 @@ def is_running():
     prog_name="whisper-assistant",
     message="%(prog)s %(version)s\n\nTo upgrade: uv tool install whisper-assistant --force --from git+https://github.com/Futhark-AS/whisper_assistant.git",
 )
-def cli():
+def cli() -> None:
     """Whisper Assistant CLI."""
     pass
 
@@ -63,7 +63,7 @@ GROQ_CONSOLE_URL = "https://console.groq.com/keys"
 
 
 @cli.command()
-def init():
+def init() -> None:
     """Interactive init wizard for first-time configuration."""
     config_file = get_config_file()
 
@@ -86,12 +86,12 @@ def init():
         click.secho("Invalid API key. Run 'whisper-assistant init' again.", fg="red")
         sys.exit(1)
 
+    # Step 2: Hotkeys
     click.echo()
-    click.secho("3. Configure hotkeys and options", fg="yellow")
+    click.secho("2. Configure hotkeys", fg="yellow")
     click.echo("   (Press Enter to accept defaults)")
     click.echo()
 
-    # Hotkeys with defaults
     toggle_hotkey = click.prompt(
         "   Toggle recording hotkey",
         default="ctrl+shift+1",
@@ -110,8 +110,11 @@ def init():
         show_default=True,
     )
 
-    # Language
+    # Step 3: Language and output
     click.echo()
+    click.secho("3. Language and output", fg="yellow")
+    click.echo()
+
     click.echo("   Language: 'auto' for auto-detect, or code like 'en', 'no', 'es'")
     language = click.prompt(
         "   Transcription language",
@@ -119,7 +122,6 @@ def init():
         show_default=True,
     )
 
-    # Output mode
     click.echo()
     click.echo(
         "   Output: 'clipboard', 'paste_on_cursor', 'clipboard,paste_on_cursor', or 'none'"
@@ -128,6 +130,27 @@ def init():
         "   Transcription output",
         default="paste_on_cursor",
         show_default=True,
+    )
+
+    # Step 4: Model and timeout
+    click.echo()
+    click.secho("4. Model and timeout", fg="yellow")
+    click.echo("   (Press Enter to accept defaults)")
+    click.echo()
+
+    valid_models = ", ".join(sorted(VALID_WHISPER_MODELS))
+    click.echo(f"   Valid models: {valid_models}")
+    whisper_model = click.prompt(
+        "   Whisper model",
+        default="whisper-large-v3",
+        show_default=True,
+    )
+
+    groq_timeout = click.prompt(
+        "   API timeout (seconds)",
+        default=60,
+        show_default=True,
+        type=int,
     )
 
     # Write config
@@ -146,13 +169,28 @@ CANCEL_RECORDING_HOTKEY={cancel_hotkey}
 TRANSCRIPTION_LANGUAGE={language}
 
 TRANSCRIPTION_OUTPUT={output}
+
+WHISPER_MODEL={whisper_model}
+
+GROQ_TIMEOUT={groq_timeout}
 """
 
     config_file.write_text(config_content)
+    config_file.chmod(0o600)
 
     click.echo()
     click.secho("✅ Configuration saved!", fg="green", bold=True)
     click.echo(f"   Config file: {config_file}")
+    click.echo()
+
+    # macOS Accessibility note
+    click.secho(
+        "IMPORTANT: You must grant Accessibility access to your terminal app.",
+        fg="yellow",
+        bold=True,
+    )
+    click.echo("Go to: System Settings > Privacy & Security > Accessibility")
+    click.echo("Add your terminal (Terminal.app, iTerm2, etc.)")
     click.echo()
 
     # Validate config
@@ -176,7 +214,7 @@ TRANSCRIPTION_OUTPUT={output}
         click.echo("Run 'whisper-assistant start' when ready.")
 
 
-def _start_daemon():
+def _start_daemon() -> bool:
     """Internal function to start the daemon. Returns True on success, False on failure."""
     if is_running():
         pid = get_pid()
@@ -187,13 +225,13 @@ def _start_daemon():
     try:
         # Use sys.executable to ensure we use the same Python interpreter
         # Redirect stderr to a file so we can check for startup errors
-        stderr_file = open(STDERR_LOG, "w")
-        process = subprocess.Popen(
-            [sys.executable, "-m", "whisper_assistant.main"],
-            stdout=subprocess.DEVNULL,
-            stderr=stderr_file,
-            start_new_session=True,  # Detach from parent process
-        )
+        with open(STDERR_LOG, "w") as stderr_file:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "whisper_assistant.main"],
+                stdout=subprocess.DEVNULL,
+                stderr=stderr_file,
+                start_new_session=True,  # Detach from parent process
+            )
 
         # Write PID file
         PID_FILE.write_text(str(process.pid))
@@ -204,7 +242,6 @@ def _start_daemon():
         # Check if process crashed during startup
         exit_code = process.poll()
         if exit_code is not None:
-            stderr_file.close()
             click.echo(
                 f"Whisper Assistant crashed during startup (exit code: {exit_code})",
                 err=True,
@@ -224,7 +261,7 @@ def _start_daemon():
         return False
 
 
-def _stop_daemon():
+def _stop_daemon() -> bool:
     """Internal function to stop the daemon. Returns True on success, False on failure."""
     if not is_running():
         click.echo("Whisper Assistant is not running")
@@ -261,21 +298,21 @@ def _stop_daemon():
 
 
 @cli.command()
-def start():
+def start() -> None:
     """Start the Whisper Assistant daemon."""
     if not _start_daemon():
         sys.exit(1)
 
 
 @cli.command()
-def stop():
+def stop() -> None:
     """Stop the Whisper Assistant daemon."""
     if not _stop_daemon():
         sys.exit(1)
 
 
 @cli.command()
-def restart():
+def restart() -> None:
     """Restart the Whisper Assistant daemon."""
     _stop_daemon()
     # Small delay to ensure clean shutdown
@@ -285,7 +322,7 @@ def restart():
 
 
 @cli.command()
-def status():
+def status() -> None:
     """Check the status of Whisper Assistant."""
     if is_running():
         pid = get_pid()
@@ -297,7 +334,7 @@ def status():
 @cli.command()
 @click.option("--lines", "-n", default=50, help="Number of lines to show (default: 50)")
 @click.option("--stderr", is_flag=True, help="Show stderr log instead of main log")
-def logs(lines, stderr):
+def logs(lines: int, stderr: bool) -> None:
     """Show recent logs from the daemon."""
     if stderr:
         log_file = STDERR_LOG
@@ -317,13 +354,13 @@ def logs(lines, stderr):
         click.echo(line)
 
 
-def _transcribe_audio(audio_path: Path, language: str | None):
+def _transcribe_audio(audio_path: Path, language: str | None) -> None:
     """Transcribe audio file and print result. Exits on error."""
     env = read_env()
     click.echo(f"Transcribing {audio_path}...")
 
     try:
-        transcriber = Transcriber()
+        transcriber = Transcriber(model=env.WHISPER_MODEL, timeout=600)
         lang = language if language is not None else env.TRANSCRIPTION_LANGUAGE
         text = transcriber.transcribe(str(audio_path), language=lang)
 
@@ -348,7 +385,7 @@ def _transcribe_audio(audio_path: Path, language: str | None):
     default=None,
     help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
 )
-def transcribe(file, language):
+def transcribe(file: Path, language: str | None) -> None:
     """Transcribe an audio or video file."""
     file_path = Path(file).resolve()
 
@@ -364,12 +401,12 @@ def transcribe(file, language):
 
 
 @cli.group()
-def history():
+def history() -> None:
     """Manage recorded history."""
     pass
 
 
-def _get_all_recordings():
+def _get_all_recordings() -> list[Path]:
     """Get all recordings sorted chronologically (oldest first)."""
     if not HISTORY_DIR.exists():
         return []
@@ -377,14 +414,17 @@ def _get_all_recordings():
     recordings = []
     for date_dir in sorted(d for d in HISTORY_DIR.iterdir() if d.is_dir()):
         for timestamp_dir in sorted(d for d in date_dir.iterdir() if d.is_dir()):
-            audio_path = timestamp_dir / "recording.wav"
+            # Prefer .flac (new format) but fall back to .wav (old recordings)
+            audio_path = timestamp_dir / "recording.flac"
+            if not audio_path.exists():
+                audio_path = timestamp_dir / "recording.wav"
             if audio_path.exists():
                 recordings.append(audio_path)
     return recordings
 
 
-@history.command()
-def list():
+@history.command(name="list")
+def list_recordings() -> None:
     """List recorded history."""
     recordings = _get_all_recordings()
 
@@ -403,7 +443,7 @@ def list():
     default=None,
     help="Language code for transcription (e.g., 'en', 'es', 'no'). Defaults to config value.",
 )
-def history_transcribe(n, language):
+def history_transcribe(n: int, language: str | None) -> None:
     """Transcribe the Nth most recent recording (1 = latest)."""
     if n < 1:
         click.echo("N must be at least 1", err=True)
@@ -424,7 +464,7 @@ def history_transcribe(n, language):
 
 @history.command(name="play")
 @click.argument("n", type=int)
-def history_play(n):
+def history_play(n: int) -> None:
     """Play the Nth most recent recording (1 = latest)."""
     if not shutil.which("afplay"):
         click.echo(
@@ -453,13 +493,13 @@ def history_play(n):
 
 
 @cli.group()
-def config():
+def config() -> None:
     """Manage configuration."""
     pass
 
 
 @config.command(name="show")
-def config_show():
+def config_show() -> None:
     """Show current configuration values."""
     env = read_env()
     click.echo(f"Current Configuration:\n{env}")
@@ -472,7 +512,7 @@ def config_show():
     default=None,
     help="Editor to use (e.g., 'nvim', 'vim', 'code'). Defaults to $EDITOR or $VISUAL.",
 )
-def config_edit(editor):
+def config_edit(editor: str | None) -> None:
     """Edit configuration in your default editor. Restarts daemon if running."""
     env_file = get_config_file()
 

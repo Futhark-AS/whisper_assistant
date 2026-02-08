@@ -1,2 +1,1 @@
-# Packages module
-
+"""Whisper Assistant sub-packages."""

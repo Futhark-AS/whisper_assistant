@@ -1,51 +1,53 @@
 import logging
-import subprocess
 import platform
+import subprocess
 import threading
 
 logger = logging.getLogger(__name__)
 
 
 class Notifier:
-    """Handles desktop notifications and sound feedback."""
+    """Handles desktop notifications and sound feedback (macOS only)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         if platform.system() != "Darwin":
             raise NotImplementedError(
                 f"Only macOS is supported, but got {platform.system()}"
             )
 
-    def _run_osascript(self, command):
-        """
-        Run an osascript command.
-        """
-        subprocess.run(
-            ["osascript", "-e", command],
-            check=False,
-            capture_output=True,
-        )
+    def show_alert(self, message: str, title: str = "Whisper Assistant") -> None:
+        """Show a desktop notification (non-blocking, runs in daemon thread)."""
 
-    def show_alert(self, message, title="Whisper Assistant"):
-        """
-        Show a desktop notification with a specified message and title.
-        """
-        self._run_osascript(f'display notification "{message}" with title "{title}"')
+        def _run() -> None:
+            try:
+                subprocess.run(
+                    ["osascript", "-e", f'display notification "{message}" with title "{title}"'],
+                    check=False,
+                    capture_output=True,
+                )
+            except Exception:
+                logger.exception("Failed to show alert")
 
-    def play_sound(self, sound_file, volume=25):
-        """
-        Play a system sound at a specified volume (non-blocking).
+        threading.Thread(target=_run, daemon=True).start()
 
-        Args:
-            sound_file: Path to the sound file
-            volume: Volume level (0-100)
-        """
-        threading.Thread(
-            target=self._play_sound_sync, args=(sound_file, volume), daemon=True
-        ).start()
+    def play_sound(self, sound_file: str, volume: float = 0.25) -> None:
+        """Play a sound file at given volume (0.0-1.0). Fire and forget, no system volume changes."""
+        try:
+            subprocess.Popen(
+                ["afplay", "-v", str(volume), sound_file],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            logger.exception("Failed to play sound: %s", sound_file)
 
-    def _play_sound_sync(self, sound_file, volume):
-        """Internal method to play sound synchronously (runs in background thread)."""
-        self._run_osascript(f"""set currentVol to output volume of (get volume settings)
-set volume output volume {volume}
-do shell script "afplay {sound_file}"
-set volume output volume currentVol""")
+    def notify_error(self, message: str) -> None:
+        """Show error alert and play error sound."""
+        self.show_alert(message, title="Whisper Assistant — Error")
+        self.play_sound("/System/Library/Sounds/Basso.aiff")
+
+    def notify_info(self, message: str, sound_path: str | None = None) -> None:
+        """Show info alert, optionally play a sound."""
+        self.show_alert(message)
+        if sound_path:
+            self.play_sound(sound_path)

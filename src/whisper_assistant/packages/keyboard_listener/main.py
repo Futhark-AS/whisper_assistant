@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Callable
+
 from pynput import keyboard
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -8,51 +9,41 @@ logger = logging.getLogger(__name__)
 class KeyboardListener:
     """Handles global keyboard hotkey listening."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the keyboard listener."""
-        self.hotkeys = []  # List of dicts: {'keys': set, 'object': keyboard.HotKey}
-        self.listener = None
-        self.running = False
+        self.hotkeys: list[dict[str, object]] = []
+        self.listener: keyboard.Listener | None = None
+        self.running: bool = False
 
-    def register_hotkey(self, hotkey_set, callback):
-        """
-        Register a hotkey combination and its callback.
+    def register_hotkey(
+        self,
+        hotkey_set: set[keyboard.Key | keyboard.KeyCode],
+        callback: Callable[[], None],
+    ) -> None:
+        """Register a hotkey combination and its callback."""
 
-        Args:
-            hotkey_set: Set of keyboard keys (e.g., {keyboard.Key.cmd, keyboard.KeyCode.from_char("2")})
-            callback: Function to call when hotkey is pressed
-        """
-
-        # Wrap callback to catch exceptions and prevent listener from crashing
-        def safe_callback():
+        def safe_callback() -> None:
             logger.debug(f"Hotkey triggered: {hotkey_set}")
             try:
                 callback()
             except Exception as e:
                 logger.error(f"Error in hotkey callback: {e}")
 
-        # Create pynput HotKey object
         hk = keyboard.HotKey(hotkey_set, safe_callback)
-
         self.hotkeys.append({"keys": hotkey_set, "object": hk})
         logger.debug(f"Registered hotkey: {hotkey_set}")
 
-    def unregister_hotkey(self, hotkey_set):
-        """
-        Unregister a hotkey combination.
-
-        Args:
-            hotkey_set: Set of keyboard keys (e.g., {keyboard.Key.cmd, keyboard.KeyCode.from_char("2")})
-        """
-        # Filter out the hotkey with matching keys
-        # We match by converting to sorted tuple for stable comparison of sets
+    def unregister_hotkey(
+        self, hotkey_set: set[keyboard.Key | keyboard.KeyCode]
+    ) -> None:
+        """Unregister a hotkey combination."""
         target_tuple = tuple(sorted(hotkey_set, key=str))
 
         initial_len = len(self.hotkeys)
         self.hotkeys = [
             entry
             for entry in self.hotkeys
-            if tuple(sorted(entry["keys"], key=str)) != target_tuple
+            if tuple(sorted(entry["keys"], key=str)) != target_tuple  # type: ignore[arg-type]
         ]
 
         if len(self.hotkeys) < initial_len:
@@ -60,29 +51,25 @@ class KeyboardListener:
         else:
             logger.debug(f"Hotkey not registered: {hotkey_set}")
 
-    def _on_press(self, key):
+    def _on_press(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         """Internal handler for key press events."""
         if not self.listener:
             return
 
-        # Canonicalize the key (handles layout differences)
         canonical_key = self.listener.canonical(key)
-
         for entry in self.hotkeys:
-            entry["object"].press(canonical_key)
+            entry["object"].press(canonical_key)  # type: ignore[union-attr]
 
-    def _on_release(self, key):
+    def _on_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         """Internal handler for key release events."""
         if not self.listener:
             return
 
-        # Canonicalize the key
         canonical_key = self.listener.canonical(key)
-
         for entry in self.hotkeys:
-            entry["object"].release(canonical_key)
+            entry["object"].release(canonical_key)  # type: ignore[union-attr]
 
-    def start(self):
+    def start(self) -> None:
         """Start listening for keyboard events."""
         if self.running:
             logger.debug("Keyboard listener already running")
@@ -95,7 +82,7 @@ class KeyboardListener:
         self.listener.start()
         logger.debug("Keyboard listener started")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop listening for keyboard events."""
         if not self.running:
             return
@@ -105,7 +92,7 @@ class KeyboardListener:
             self.listener.stop()
         logger.debug("Keyboard listener stopped")
 
-    def join(self):
+    def join(self) -> None:
         """Wait for the listener thread to finish."""
         if self.listener:
             self.listener.join()
