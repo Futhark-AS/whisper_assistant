@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import threading
+import time
 from datetime import datetime
 
 import numpy as np
@@ -14,6 +15,7 @@ from whisper_assistant.packages.keyboard_listener import KeyboardListener
 from whisper_assistant.packages.notifications import Notifier
 from whisper_assistant.packages.transcriber import Transcriber
 from whisper_assistant.paths import get_history_dir
+from whisper_assistant.permissions import check_accessibility, check_input_monitoring
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,8 @@ SOUND_BASSO = "/System/Library/Sounds/Basso.aiff"
 class WhisperApp:
     """Main application orchestrating keyboard listener, audio recorder, and transcriber."""
 
+    _PERMISSION_WARN_COOLDOWN = 300  # 5 minutes
+
     def __init__(self) -> None:
         self.env = read_env()
         logger.info(f"Config:\n{self.env}")
@@ -43,6 +47,8 @@ class WhisperApp:
         self._keyboard_controller = Controller()
         self._recording_lock = threading.Lock()
         self.last_recording_data: tuple[np.ndarray, int] | None = None
+        self._last_mic_warning: float = 0.0
+        self._last_ax_warning: float = 0.0
 
     # ── Public API (hotkey callbacks) ────────────────────────────────
 
@@ -102,6 +108,19 @@ class WhisperApp:
 
             audio_data, sample_rate = result
             self.last_recording_data = result
+
+            # Warn if recording appears completely silent (possible mic permission issue)
+            if (
+                audio_data.size > 0
+                and np.max(np.abs(audio_data)) < 10
+                and len(audio_data) / sample_rate > 1.0
+                and time.time() - self._last_mic_warning > self._PERMISSION_WARN_COOLDOWN
+            ):
+                logger.warning("Recording was silent — microphone may be denied")
+                self.notifier.notify_info(
+                    "Recording was silent. Mic may be denied.\nRun: whisper-assistant doctor --fix"
+                )
+                self._last_mic_warning = time.time()
 
             # Immediate feedback: "processing..."
             self.notifier.notify_info("Processing...", SOUND_MORSE)
@@ -166,6 +185,16 @@ class WhisperApp:
             except Exception:
                 logger.exception("Failed to paste at cursor")
 
+            if (
+                not check_accessibility()
+                and time.time() - self._last_ax_warning > self._PERMISSION_WARN_COOLDOWN
+            ):
+                logger.warning("Accessibility permission not granted — paste may not have worked")
+                self.notifier.notify_info(
+                    "Paste may not work. Grant Accessibility to your terminal app.\nRun: whisper-assistant doctor --fix"
+                )
+                self._last_ax_warning = time.time()
+
     # ── History persistence (fire-and-forget) ────────────────────────
 
     def _save_to_history_async(
@@ -217,6 +246,18 @@ class WhisperApp:
         )
 
         self.keyboard_listener.start()
+
+        if not check_input_monitoring():
+            logger.warning("Input Monitoring permission not granted — hotkeys may not work")
+            self.notifier.notify_info(
+                "Hotkeys may not work. Grant Input Monitoring to your terminal app.\nRun: whisper-assistant doctor --fix"
+            )
+        if not check_accessibility() and self.env.TRANSCRIPTION_OUTPUT.paste_on_cursor:
+            logger.warning("Accessibility permission not granted — paste may not work")
+            self.notifier.notify_info(
+                "Paste may not work. Grant Accessibility to your terminal app.\nRun: whisper-assistant doctor --fix"
+            )
+
         try:
             self.keyboard_listener.join()
         except KeyboardInterrupt:
