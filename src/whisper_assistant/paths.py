@@ -24,7 +24,7 @@ CANCEL_RECORDING_HOTKEY=ctrl+shift+3
 
 TRANSCRIPTION_LANGUAGE=auto
 
-TRANSCRIPTION_OUTPUT=paste_on_cursor
+TRANSCRIPTION_OUTPUT=clipboard
 
 WHISPER_MODEL=whisper-large-v3-turbo
 

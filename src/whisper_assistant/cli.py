@@ -17,11 +17,53 @@ from whisper_assistant.paths import (
     get_log_dir,
     get_pid_file,
 )
+from whisper_assistant.permissions import (
+    SYM_FAIL,
+    SYM_OK,
+    SYM_WARN,
+    check_all,
+    check_microphone,
+    open_settings,
+)
 
 # Constants
 HISTORY_DIR = get_history_dir()
 PID_FILE = get_pid_file()
 STDERR_LOG = get_log_dir() / "stderr.log"
+
+_PERM_LABELS: dict[str, str] = {
+    "accessibility": "Accessibility",
+    "input_monitoring": "Input Monitoring",
+    "microphone": "Microphone",
+}
+
+_PERM_WHY: dict[str, str] = {
+    "accessibility": "paste transcriptions at cursor",
+    "input_monitoring": "global hotkeys",
+    "microphone": "audio recording",
+}
+
+_PERM_DAEMON_REASONS: dict[str, str] = {
+    "accessibility": "paste won't work",
+    "input_monitoring": "hotkeys won't work",
+    "microphone": "recording will be silent",
+}
+
+_PERM_FIX: dict[str, str] = {
+    "accessibility": "System Settings > Privacy & Security > Accessibility — add your terminal app",
+    "input_monitoring": "System Settings > Privacy & Security > Input Monitoring — add your terminal app",
+    "microphone": "System Settings > Privacy & Security > Microphone — add your terminal app",
+}
+
+
+def _perm_status_line(name: str, granted: bool) -> None:
+    """Print a single permission status line with color."""
+    label = _PERM_LABELS[name]
+    why = _PERM_WHY[name]
+    if granted:
+        click.secho(f"  {SYM_OK} {label:<20}{why}", fg="green")
+    else:
+        click.secho(f"  {SYM_FAIL} {label:<20}Not granted — needed for {why}", fg="red", bold=True)
 
 
 def get_pid() -> int | None:
@@ -128,7 +170,7 @@ def init() -> None:
     )
     output = click.prompt(
         "   Transcription output",
-        default="paste_on_cursor",
+        default="clipboard",
         show_default=True,
     )
 
@@ -179,34 +221,61 @@ GROQ_TIMEOUT={groq_timeout}
     config_file.chmod(0o600)
 
     click.echo()
-    click.secho("✅ Configuration saved!", fg="green", bold=True)
+    click.secho("Configuration saved!", fg="green", bold=True)
     click.echo(f"   Config file: {config_file}")
-    click.echo()
-
-    # macOS Accessibility note
-    click.secho(
-        "IMPORTANT: You must grant Accessibility access to your terminal app.",
-        fg="yellow",
-        bold=True,
-    )
-    click.echo("Go to: System Settings > Privacy & Security > Accessibility")
-    click.echo("Add your terminal (Terminal.app, iTerm2, etc.)")
     click.echo()
 
     # Validate config
     try:
         read_env()
     except ConfigErrors as e:
-        click.secho(f"⚠️  Config validation warning:\n{e}", fg="yellow")
+        click.secho(f"{SYM_WARN}  Config validation warning:\n{e}", fg="yellow")
         click.echo("   Run 'whisper-assistant config edit' to fix.")
         return
+
+    # Permission check phase
+    click.secho("Permissions", bold=True)
+    click.echo("  (Grant these to your terminal app: Terminal, iTerm2, Ghostty, etc.)")
+    click.echo()
+    perms = check_all()
+    for name in ("accessibility", "input_monitoring", "microphone"):
+        _perm_status_line(name, perms[name])
+
+    failed = [name for name, ok in perms.items() if not ok]
+    if failed:
+        click.echo()
+
+        retries = 0
+        while failed and retries < 2:
+            if click.confirm("  Open System Settings to fix?", default=True):
+                for name in failed:
+                    open_settings(name)
+                click.echo()
+                click.echo("  Press Enter after granting permissions...")
+                input()
+                click.echo()
+                click.secho("  Re-checking...", fg="yellow")
+                click.echo()
+                perms = check_all()
+                for name in ("accessibility", "input_monitoring", "microphone"):
+                    _perm_status_line(name, perms[name])
+                failed = [name for name, ok in perms.items() if not ok]
+                retries += 1
+            else:
+                break
+
+        if failed:
+            click.echo()
+            click.echo("  You can fix later with: whisper-assistant doctor --fix")
+
+    click.echo()
 
     # Offer to start daemon
     if click.confirm("Start whisper-assistant now?", default=True):
         click.echo()
         _start_daemon()
         click.echo()
-        click.secho("🎉 You're all set!", fg="cyan", bold=True)
+        click.secho("You're all set!", fg="cyan", bold=True)
     else:
         click.echo()
         click.echo("Run 'whisper-assistant start' when ready.")
@@ -238,6 +307,19 @@ def _start_daemon() -> bool:
         pid = get_pid()
         click.echo(f"Whisper Assistant is already running (PID: {pid})")
         return False
+
+    # Quick permission check
+    perms = check_all()
+    failed = [name for name, ok in perms.items() if not ok]
+    if failed:
+        click.secho(f"{SYM_WARN}  Missing permissions:", fg="yellow")
+        for name in failed:
+            click.secho(
+                f"   {_PERM_LABELS[name]:<20}{_PERM_DAEMON_REASONS[name]}",
+                fg="yellow",
+            )
+        click.echo("   Fix with: whisper-assistant doctor --fix")
+        click.echo()
 
     # Start daemon process
     try:
@@ -348,6 +430,88 @@ def status() -> None:
         click.echo(f"Whisper Assistant is running (PID: {pid})")
     else:
         click.echo("Whisper Assistant is not running")
+
+
+@cli.command()
+@click.option("--fix", is_flag=True, help="Automatically open System Settings for missing permissions")
+def doctor(fix: bool) -> None:
+    """Diagnose common issues with permissions, config, daemon, and audio."""
+    issues: list[str] = []
+
+    # ── Permissions ──────────────────────────────────────────────────
+    click.echo()
+    click.secho("Permissions", bold=True)
+    click.echo("  (Grant these to your terminal app: Terminal, iTerm2, Ghostty, etc.)")
+    click.echo()
+    perms = check_all()
+    for name in ("accessibility", "input_monitoring", "microphone"):
+        _perm_status_line(name, perms[name])
+        if not perms[name]:
+            issues.append(_PERM_FIX[name])
+            if fix:
+                open_settings(name)
+
+    # ── Configuration ────────────────────────────────────────────────
+    click.echo()
+    click.secho("Configuration", bold=True)
+    config_file = get_config_file()
+    try:
+        env = read_env()
+        click.secho(f"  {SYM_OK} Config valid", fg="green")
+        click.echo(f"     API key:  {env._masked_key()}")
+        click.echo(f"     Model:    {env.WHISPER_MODEL}")
+        click.echo(f"     File:     {config_file}")
+    except ConfigErrors as e:
+        click.secho(f"  {SYM_FAIL} Config invalid", fg="red", bold=True)
+        for err in e.errors:
+            click.echo(f"     {err}")
+        click.echo(f"     File: {config_file}")
+        issues.append("Fix config: whisper-assistant config edit")
+
+    # ── Daemon ───────────────────────────────────────────────────────
+    click.echo()
+    click.secho("Daemon", bold=True)
+    if is_running():
+        pid = get_pid()
+        click.secho(f"  {SYM_OK} Running (PID {pid})", fg="green")
+    else:
+        click.secho(f"  {SYM_WARN} Not running", fg="yellow")
+        issues.append("Start daemon: whisper-assistant start")
+
+    # ── Audio ────────────────────────────────────────────────────────
+    click.echo()
+    click.secho("Audio", bold=True)
+    try:
+        import sounddevice as sd
+
+        default_dev = sd.query_devices(kind="input")
+        dev_name = default_dev.get("name", "unknown") if isinstance(default_dev, dict) else "unknown"
+        click.secho(f"  {SYM_OK} Input device: {dev_name}", fg="green")
+    except Exception as e:
+        click.secho(f"  {SYM_FAIL} Could not query audio devices: {e}", fg="red")
+        issues.append("Check audio input device configuration")
+
+    mic_ok, mic_msg = check_microphone()
+    if mic_ok:
+        click.secho(f"  {SYM_OK} Mic probe: {mic_msg}", fg="green")
+    else:
+        click.secho(f"  {SYM_WARN} Mic probe: {mic_msg}", fg="yellow")
+
+    # ── Summary ──────────────────────────────────────────────────────
+    click.echo()
+    if not issues:
+        click.secho(f"Everything looks good! {SYM_OK}", fg="green", bold=True)
+    else:
+        click.secho(f"Found {len(issues)} issue(s):", bold=True)
+        for i, issue in enumerate(issues, 1):
+            click.echo(f"  {i}. {issue}")
+
+    if fix and any(not perms[n] for n in perms):
+        click.echo()
+        click.secho("  Opened System Settings for missing permissions.", fg="yellow")
+        click.echo("  Add your terminal app, then re-run: whisper-assistant doctor")
+
+    click.echo()
 
 
 @cli.command()
