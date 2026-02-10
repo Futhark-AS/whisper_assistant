@@ -353,9 +353,11 @@ class Transcriber:
             transcriptions.append(chunk_text)
             logger.debug(f"Chunk {i + 1} transcription: {chunk_text[:100]}...")
 
-            # Use the end of the previous transcription as context for the next
+            # Use the end of the previous transcription as context for the next,
+            # but always keep the vocabulary prompt at the front
             if chunk_text:
-                current_prompt = chunk_text[-200:] if len(chunk_text) > 200 else chunk_text
+                rolling_context = chunk_text[-200:] if len(chunk_text) > 200 else chunk_text
+                current_prompt = f"{prompt} {rolling_context}".strip() if prompt else rolling_context
 
         return self._combine_transcriptions(transcriptions, chunks, sample_rate)
 

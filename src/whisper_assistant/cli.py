@@ -153,6 +153,19 @@ def init() -> None:
         type=int,
     )
 
+    # Step 5: Vocabulary hints
+    click.echo()
+    click.secho("5. Vocabulary hints", fg="yellow")
+    click.echo("   Comma-separated words the model often mishears (e.g. Claude,Anthropic,Cloudgeni)")
+    click.echo("   Leave blank to skip.")
+    click.echo()
+
+    vocabulary = click.prompt(
+        "   Vocabulary",
+        default="",
+        show_default=False,
+    )
+
     # Write config
     config_content = f"""\
 # Whisper Assistant Configuration
@@ -173,6 +186,8 @@ TRANSCRIPTION_OUTPUT={output}
 WHISPER_MODEL={whisper_model}
 
 GROQ_TIMEOUT={groq_timeout}
+
+VOCABULARY={vocabulary}
 """
 
     config_file.write_text(config_content)
@@ -381,7 +396,8 @@ def _transcribe_audio(audio_path: Path, language: str | None) -> None:
     try:
         transcriber = Transcriber(model=env.WHISPER_MODEL, timeout=600)
         lang = language if language is not None else env.TRANSCRIPTION_LANGUAGE
-        text = transcriber.transcribe(str(audio_path), language=lang)
+        vocab_prompt = ", ".join(env.VOCABULARY) if env.VOCABULARY else ""
+        text = transcriber.transcribe(str(audio_path), prompt=vocab_prompt, language=lang)
 
         if text:
             click.echo(f"\n{'=' * 60}")

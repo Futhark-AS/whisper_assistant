@@ -77,6 +77,7 @@ class Env:
     TRANSCRIPTION_OUTPUT: TranscriptionOutput
     WHISPER_MODEL: str
     GROQ_TIMEOUT: int
+    VOCABULARY: list[str]  # Words to bias transcription toward
 
     def _masked_key(self) -> str:
         if len(self.GROQ_API_KEY) >= 4:
@@ -93,7 +94,8 @@ class Env:
             f"{'TRANSCRIPTION_LANGUAGE:':<30} {lang}\n"
             f"{'TRANSCRIPTION_OUTPUT:':<30} {self.TRANSCRIPTION_OUTPUT}\n"
             f"{'WHISPER_MODEL:':<30} {self.WHISPER_MODEL}\n"
-            f"{'GROQ_TIMEOUT:':<30} {self.GROQ_TIMEOUT}"
+            f"{'GROQ_TIMEOUT:':<30} {self.GROQ_TIMEOUT}\n"
+            f"{'VOCABULARY:':<30} {', '.join(self.VOCABULARY) if self.VOCABULARY else '(none)'}"
         )
 
 
@@ -217,6 +219,10 @@ def read_env() -> Env:
             ConfigError("GROQ_TIMEOUT", f"invalid integer '{groq_timeout_str}'")
         )
 
+    # --- Vocabulary hints ---
+    vocabulary_raw = os.getenv("VOCABULARY", "")
+    VOCABULARY = [w.strip() for w in vocabulary_raw.split(",") if w.strip()]
+
     if errors:
         raise ConfigErrors(errors)
 
@@ -236,4 +242,5 @@ def read_env() -> Env:
         TRANSCRIPTION_OUTPUT=TRANSCRIPTION_OUTPUT,
         WHISPER_MODEL=WHISPER_MODEL,
         GROQ_TIMEOUT=GROQ_TIMEOUT,
+        VOCABULARY=VOCABULARY,
     )
