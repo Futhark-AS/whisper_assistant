@@ -156,7 +156,7 @@ def init() -> None:
     # Step 5: Vocabulary hints
     click.echo()
     click.secho("5. Vocabulary hints", fg="yellow")
-    click.echo("   Comma-separated words the model often mishears (e.g. Claude,Anthropic,Cloudgeni)")
+    click.echo("   Comma-separated words the model often mishears (e.g. Claude,Cloudgeni)")
     click.echo("   Leave blank to skip.")
     click.echo()
 
