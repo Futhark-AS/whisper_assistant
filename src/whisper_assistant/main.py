@@ -136,9 +136,11 @@ class WhisperApp:
     def _transcribe_and_output(self, audio_data: np.ndarray, sample_rate: int) -> None:
         """Transcribe audio array and output the result."""
         try:
+            vocab_prompt = ", ".join(self.env.VOCABULARY) if self.env.VOCABULARY else ""
             text = self.transcriber.transcribe_from_array(
                 audio_data,
                 sample_rate,
+                prompt=vocab_prompt,
                 language=self.env.TRANSCRIPTION_LANGUAGE,
             )
 

@@ -29,6 +29,9 @@ TRANSCRIPTION_OUTPUT=clipboard
 WHISPER_MODEL=whisper-large-v3-turbo
 
 GROQ_TIMEOUT=60
+
+# Comma-separated words to improve transcription accuracy (e.g. Claude,Cloudgeni)
+VOCABULARY=
 """
 
 
