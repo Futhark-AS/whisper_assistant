@@ -32,6 +32,7 @@ class WhisperApp:
     """Main application orchestrating keyboard listener, audio recorder, and transcriber."""
 
     _PERMISSION_WARN_COOLDOWN = 300  # 5 minutes
+    _PROGRESS_NOTIFICATIONS = False
 
     def __init__(self) -> None:
         self.env = read_env()
@@ -75,7 +76,7 @@ class WhisperApp:
 
         logger.info("Cancelling recording...")
         self.recorder.cancel_recording()
-        self.notifier.notify_info("Recording cancelled", SOUND_BASSO)
+        self._notify_progress("Recording cancelled", SOUND_BASSO)
 
     def retry_transcription(self) -> None:
         """Re-transcribe the last recorded audio."""
@@ -85,7 +86,7 @@ class WhisperApp:
 
         audio_data, sample_rate = self.last_recording_data
         logger.info("Retrying transcription of last recording")
-        self.notifier.notify_info("Retrying transcription...", SOUND_MORSE)
+        self._notify_progress("Retrying transcription...", SOUND_MORSE)
         threading.Thread(
             target=self._transcribe_and_output,
             args=(audio_data, sample_rate),
@@ -98,12 +99,21 @@ class WhisperApp:
         """Record → transcribe → output. Runs in a worker thread."""
         try:
             # Notify user recording is starting (async — doesn't block stream open)
-            self.notifier.notify_info("Recording...", SOUND_HERO)
+            self._notify_progress("Recording...", SOUND_HERO)
 
-            result = self.recorder.start_recording()
+            result = self._start_recording_with_auto_recovery()
 
             if result is None:
-                logger.info("Recording returned no data (cancelled or error)")
+                failure_kind = self.recorder.get_last_failure_kind()
+                failure_message = self.recorder.get_last_failure_message()
+                if failure_kind:
+                    logger.info(
+                        "Recording returned no data (reason=%s, detail=%s)",
+                        failure_kind,
+                        failure_message,
+                    )
+                else:
+                    logger.info("Recording returned no data (cancelled or error)")
                 return
 
             audio_data, sample_rate = result
@@ -123,7 +133,7 @@ class WhisperApp:
                 self._last_mic_warning = time.time()
 
             # Immediate feedback: "processing..."
-            self.notifier.notify_info("Processing...", SOUND_MORSE)
+            self._notify_progress("Processing...", SOUND_MORSE)
 
             self._transcribe_and_output(audio_data, sample_rate)
 
@@ -132,6 +142,42 @@ class WhisperApp:
             self.notifier.notify_error("Recording failed — see logs")
         finally:
             self._recording_lock.release()
+
+    def _start_recording_with_auto_recovery(self) -> tuple[np.ndarray, int] | None:
+        """Start recording and retry once if recorder reports stream-open backend failure."""
+        result = self.recorder.start_recording()
+        if result is not None:
+            return result
+
+        failure_kind = self.recorder.get_last_failure_kind()
+        if failure_kind != "stream_open_error":
+            return None
+
+        failure_message = self.recorder.get_last_failure_message()
+        failure_count = self.recorder.get_consecutive_open_failures()
+        logger.warning(
+            "Recording stream-open failure detected (count=%d, detail=%s); auto-retrying once",
+            failure_count,
+            failure_message,
+        )
+        self._notify_progress("Audio backend glitch detected. Retrying recording...")
+
+        retry_result = self.recorder.start_recording()
+        if retry_result is not None:
+            logger.info("Automatic recording retry succeeded")
+            return retry_result
+
+        if self.recorder.get_last_failure_kind() == "stream_open_error":
+            logger.error(
+                "Automatic recording retry failed (count=%d, detail=%s)",
+                self.recorder.get_consecutive_open_failures(),
+                self.recorder.get_last_failure_message(),
+            )
+            self.notifier.notify_error(
+                "Microphone backend failed.\nIf repeated, reconnect audio device and retry."
+            )
+
+        return None
 
     def _transcribe_and_output(self, audio_data: np.ndarray, sample_rate: int) -> None:
         """Transcribe audio array and output the result."""
@@ -146,11 +192,11 @@ class WhisperApp:
 
             if not text or not text.strip():
                 logger.info("Transcription returned empty result")
-                self.notifier.notify_info("No speech detected")
+                self._notify_progress("No speech detected")
                 return
 
             self._output_transcription(text)
-            self.notifier.notify_info("Transcription complete", SOUND_GLASS)
+            self._notify_progress("Transcription complete", SOUND_GLASS)
 
             # Save history in background — never blocks user
             self._save_to_history_async(audio_data, sample_rate, text)
@@ -158,6 +204,11 @@ class WhisperApp:
         except Exception:
             logger.exception("Transcription error")
             self.notifier.notify_error("Transcription failed — see logs")
+
+    def _notify_progress(self, message: str, sound_path: str | None = None) -> None:
+        """Optional progress notifications/sounds (off by default to reduce noise)."""
+        if self._PROGRESS_NOTIFICATIONS:
+            self.notifier.notify_info(message, sound_path)
 
     # ── Output ───────────────────────────────────────────────────────
 
