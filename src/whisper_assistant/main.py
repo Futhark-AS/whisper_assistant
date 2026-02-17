@@ -206,9 +206,11 @@ class WhisperApp:
             self.notifier.notify_error("Transcription failed — see logs")
 
     def _notify_progress(self, message: str, sound_path: str | None = None) -> None:
-        """Optional progress notifications/sounds (off by default to reduce noise)."""
+        """Play sound cue always; desktop banner only when _PROGRESS_NOTIFICATIONS is on."""
+        if sound_path:
+            self.notifier.play_sound(sound_path)
         if self._PROGRESS_NOTIFICATIONS:
-            self.notifier.notify_info(message, sound_path)
+            self.notifier.notify_info(message)
 
     # ── Output ───────────────────────────────────────────────────────
 
