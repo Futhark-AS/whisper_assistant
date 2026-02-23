@@ -71,7 +71,10 @@ Release publishing is automated:
   - `SHA256SUMS.txt`
 
 Optional signing/notarization in CI is enabled when these repo secrets exist:
-- `APPLE_SIGNING_IDENTITY`
+- `APPLE_CERTIFICATE_P12` (base64-encoded Developer ID Application `.p12`)
+- `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_SIGNING_IDENTITY` (optional; auto-resolved if omitted)
+- `APPLE_KEYCHAIN_PASSWORD` (optional)
 - `APPLE_ID`
 - `APPLE_TEAM_ID`
 - `APPLE_APP_PASSWORD`

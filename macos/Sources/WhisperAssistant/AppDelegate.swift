@@ -106,14 +106,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task {
                     let permissions = await permissionCoordinator.checkAll()
                     if permissions.microphone != .granted {
+                        if permissions.microphone == .notDetermined {
+                            _ = await permissionCoordinator.requestMicrophonePermission()
+                        }
                         await permissionCoordinator.openSystemSettings(.microphone)
                         return
                     }
                     if permissions.accessibility != .granted {
+                        await permissionCoordinator.requestAccessibilityPermissionPrompt()
                         await permissionCoordinator.openSystemSettings(.accessibility)
                         return
                     }
                     if permissions.inputMonitoring != .granted {
+                        await permissionCoordinator.requestInputMonitoringPrompt()
                         await permissionCoordinator.openSystemSettings(.inputMonitoring)
                         return
                     }

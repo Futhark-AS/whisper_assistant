@@ -102,6 +102,12 @@ public actor PermissionCoordinator {
         _ = CGRequestListenEventAccess()
     }
 
+    /// Requests Accessibility permission prompt when needed.
+    public func requestAccessibilityPermissionPrompt() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+
     private func microphoneStatus() -> PermissionState {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
