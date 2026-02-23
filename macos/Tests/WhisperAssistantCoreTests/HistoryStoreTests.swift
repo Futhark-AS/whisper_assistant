@@ -24,5 +24,24 @@ final class HistoryStoreTests: XCTestCase {
         try await store.saveSession(record)
         let sessions = try await store.listSessions(limit: 20)
         XCTAssertTrue(sessions.contains(where: { $0.sessionID == sessionID }))
+
+        let transcript = try await store.transcriptText(sessionID: sessionID)
+        XCTAssertEqual(transcript, "hello world")
+
+        let primaryAudio = try await store.primaryAudioFileURL(sessionID: sessionID)
+        XCTAssertNotNil(primaryAudio)
+        XCTAssertTrue(primaryAudio?.path.contains("/media/\(sessionID.uuidString)/recording.caf") ?? false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: primaryAudio?.path ?? ""))
+        let copied = try Data(contentsOf: primaryAudio!)
+        XCTAssertEqual(copied, Data("audio".utf8))
+    }
+
+    func testPrimaryAudioFileURLReturnsNilWhenMissing() async throws {
+        let store = try HistoryStore()
+        let missing = try await store.primaryAudioFileURL(sessionID: UUID())
+        XCTAssertNil(missing)
+
+        let missingTranscript = try await store.transcriptText(sessionID: UUID())
+        XCTAssertNil(missingTranscript)
     }
 }

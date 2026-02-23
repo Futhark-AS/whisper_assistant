@@ -68,7 +68,9 @@ public actor DiagnosticsCenter {
         self.historyStore = historyStore
         self.logger = logger
         self.uploadEndpoint = uploadEndpoint
-        startRollupLoop()
+        Task { [weak self] in
+            await self?.startRollupLoop()
+        }
     }
 
     /// Emits a structured event entry.
@@ -202,6 +204,10 @@ public actor DiagnosticsCenter {
     }
 
     private func startRollupLoop() {
+        guard rollupTask == nil else {
+            return
+        }
+
         rollupTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))

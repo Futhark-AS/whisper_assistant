@@ -50,22 +50,24 @@ public actor AudioCaptureEngine {
     private var armingWatchdogTask: Task<Void, Never>?
     private var pendingError: AudioCaptureError?
     private var observers: [NSObjectProtocol] = []
+    private var observersInstalled = false
 
     /// Creates capture engine.
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
         self.engine = AVAudioEngine()
         self.workingDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("WhisperAssistantCapture", isDirectory: true)
-        installEnvironmentObservers()
     }
 
     /// Prepares the audio engine to reduce first-start latency.
     public func prepareEngine() {
-        engine.prepare()
+        prepareEngineIfPossible()
     }
 
     /// Starts a recording session with retry and watchdog policies.
     public func startRecording(sessionID: UUID) async throws {
+        ensureEnvironmentObserversInstalled()
+
         guard self.sessionID == nil else {
             throw AudioCaptureError.alreadyRecording
         }
@@ -114,7 +116,7 @@ public actor AudioCaptureEngine {
         self.sessionID = nil
 
         let durationMS = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let path = workingDirectory.appendingPathComponent(activeSessionID.uuidString).appendingPathExtension("caf")
+        let path = workingDirectory.appendingPathComponent(activeSessionID.uuidString).appendingPathExtension("wav")
         return AudioCaptureResult(sessionID: activeSessionID, fileURL: path, durationMS: max(durationMS, 0))
     }
 
@@ -127,6 +129,14 @@ public actor AudioCaptureEngine {
         pendingError = nil
     }
 
+    private func ensureEnvironmentObserversInstalled() {
+        guard !observersInstalled else {
+            return
+        }
+        installEnvironmentObservers()
+        observersInstalled = true
+    }
+
     private func setupAndStart(sessionID: UUID) throws {
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
@@ -136,7 +146,7 @@ public actor AudioCaptureEngine {
         }
 
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let outputURL = workingDirectory.appendingPathComponent(sessionID.uuidString).appendingPathExtension("caf")
+        let outputURL = workingDirectory.appendingPathComponent(sessionID.uuidString).appendingPathExtension("wav")
         if fileManager.fileExists(atPath: outputURL.path) {
             try fileManager.removeItem(at: outputURL)
         }
@@ -170,7 +180,7 @@ public actor AudioCaptureEngine {
             }
         }
 
-        engine.prepare()
+        prepareEngineIfPossible()
         do {
             try engine.start()
         } catch {
@@ -229,7 +239,7 @@ public actor AudioCaptureEngine {
 
         if lastFrameAt == nil {
             engine.stop()
-            engine.prepare()
+            prepareEngineIfPossible()
             do {
                 try engine.start()
             } catch {
@@ -313,6 +323,14 @@ public actor AudioCaptureEngine {
     }
 
     private func handleSystemWake() {
+        prepareEngineIfPossible()
+    }
+
+    private func prepareEngineIfPossible() {
+        let inputFormat = engine.inputNode.inputFormat(forBus: 0)
+        guard inputFormat.channelCount > 0 else {
+            return
+        }
         engine.prepare()
     }
 }

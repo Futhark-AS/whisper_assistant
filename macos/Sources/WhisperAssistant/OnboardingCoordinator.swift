@@ -2,7 +2,7 @@ import Foundation
 import WhisperAssistantCore
 
 /// Result of onboarding reliability gate execution.
-struct OnboardingGateResult {
+struct OnboardingGateResult: Sendable {
     /// Indicates all required gates passed.
     let passed: Bool
     /// Degraded reason when gate fails.
@@ -10,7 +10,7 @@ struct OnboardingGateResult {
 }
 
 /// Handles first-run onboarding reliability checks.
-final class OnboardingCoordinator {
+actor OnboardingCoordinator {
     private enum Constants {
         static let completedKey = "whisper.assistant.onboarding.completed"
     }
@@ -59,9 +59,13 @@ final class OnboardingCoordinator {
     }
 
     private func runHotkeyVerification(settings: AppSettings) -> Bool {
-        let requiredActions: Set<String> = ["toggle", "retry", "cancel"]
+        // Hotkeys are optional; if configured, a toggle action must exist.
+        if settings.hotkeys.isEmpty {
+            return true
+        }
+
         let configured = Set(settings.hotkeys.map(\.actionID))
-        return requiredActions.isSubset(of: configured)
+        return configured.contains("toggle")
     }
 
     private func runMicrophoneLoopback(audioEngine: AudioCaptureEngine) async -> Bool {

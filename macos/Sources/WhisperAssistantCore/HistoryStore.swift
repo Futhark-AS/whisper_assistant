@@ -71,14 +71,18 @@ public actor HistoryStore {
 
     /// Creates history store and initializes schema.
     public init(fileManager: FileManager = .default) throws {
-        self.fileManager = fileManager
-        self.baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let resolvedBaseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Whisper Assistant", isDirectory: true)
-        self.dbURL = baseURL.appendingPathComponent("db/history.sqlite")
+        let resolvedDBURL = resolvedBaseURL.appendingPathComponent("db/history.sqlite")
 
-        try setupDirectories()
-        try openDatabase()
-        try initializeSchema()
+        self.fileManager = fileManager
+        self.baseURL = resolvedBaseURL
+        self.dbURL = resolvedDBURL
+
+        try Self.setupDirectories(fileManager: fileManager, baseURL: resolvedBaseURL)
+        let connection = try Self.openDatabase(at: resolvedDBURL)
+        self.db = connection
+        try Self.initializeSchema(on: connection)
     }
 
     /// Stores a completed session and related artifacts.
@@ -87,6 +91,8 @@ public actor HistoryStore {
         legacySourcePath: String? = nil,
         legacyAudioFormat: String? = nil
     ) throws {
+        let persistedAudioPath = try persistAudioArtifact(sessionID: session.sessionID, sourcePath: session.audioPath)
+
         try execute("BEGIN IMMEDIATE TRANSACTION")
         do {
             let insertSession = try prepare(
@@ -135,7 +141,7 @@ public actor HistoryStore {
             bindText(UUID().uuidString, to: 1, in: mediaStatement)
             bindText(session.sessionID.uuidString, to: 2, in: mediaStatement)
             bindText("audio", to: 3, in: mediaStatement)
-            bindText(session.audioPath.path, to: 4, in: mediaStatement)
+            bindText(persistedAudioPath.path, to: 4, in: mediaStatement)
             bindInt32(1, to: 5, in: mediaStatement)
             try stepDone(mediaStatement)
 
@@ -248,6 +254,48 @@ public actor HistoryStore {
         return result
     }
 
+    /// Returns full transcript text for a session when available.
+    public func transcriptText(sessionID: UUID) throws -> String? {
+        let statement = try prepare(
+            """
+            SELECT transcript_text
+            FROM session_transcripts
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1;
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+
+        bindText(sessionID.uuidString, to: 1, in: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            return nil
+        }
+
+        return sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
+    }
+
+    /// Returns the primary audio media file URL for a session when available.
+    public func primaryAudioFileURL(sessionID: UUID) throws -> URL? {
+        let statement = try prepare(
+            """
+            SELECT file_path
+            FROM session_media
+            WHERE session_id = ? AND media_type = 'audio'
+            ORDER BY is_primary DESC, rowid DESC
+            LIMIT 1;
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+
+        bindText(sessionID.uuidString, to: 1, in: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW, let cString = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+
+        return URL(fileURLWithPath: String(cString: cString))
+    }
+
     /// Migrates legacy Python history folders into SQLite and media layout.
     public func migrateLegacyPythonHistory() throws -> LegacyMigrationReport {
         let source = legacyHistorySource()
@@ -356,14 +404,14 @@ public actor HistoryStore {
         baseURL
     }
 
-    private func setupDirectories() throws {
+    private static func setupDirectories(fileManager: FileManager, baseURL: URL) throws {
         try fileManager.createDirectory(at: baseURL.appendingPathComponent("db"), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: baseURL.appendingPathComponent("media"), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: baseURL.appendingPathComponent("logs"), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: baseURL.appendingPathComponent("exports"), withIntermediateDirectories: true)
     }
 
-    private func openDatabase() throws {
+    private static func openDatabase(at dbURL: URL) throws -> OpaquePointer {
         var connection: OpaquePointer?
         let status = sqlite3_open_v2(
             dbURL.path,
@@ -376,14 +424,19 @@ public actor HistoryStore {
             throw HistoryStoreError.databaseOpenFailed
         }
 
-        db = connection
-        try execute("PRAGMA journal_mode=WAL;")
-        try execute("PRAGMA synchronous=NORMAL;")
-        try execute("PRAGMA foreign_keys=ON;")
+        do {
+            try executeSQL("PRAGMA journal_mode=WAL;", on: connection)
+            try executeSQL("PRAGMA synchronous=NORMAL;", on: connection)
+            try executeSQL("PRAGMA foreign_keys=ON;", on: connection)
+            return connection
+        } catch {
+            sqlite3_close(connection)
+            throw error
+        }
     }
 
-    private func initializeSchema() throws {
-        try execute(
+    private static func initializeSchema(on db: OpaquePointer) throws {
+        try executeSQL(
             """
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version TEXT PRIMARY KEY,
@@ -451,8 +504,19 @@ public actor HistoryStore {
                 metric_name TEXT NOT NULL,
                 metric_value REAL NOT NULL
             );
-            """
+            """,
+            on: db
         )
+    }
+
+    private static func executeSQL(_ sql: String, on db: OpaquePointer) throws {
+        var errorMessage: UnsafeMutablePointer<Int8>?
+        let status = sqlite3_exec(db, sql, nil, nil, &errorMessage)
+        guard status == SQLITE_OK else {
+            let message = errorMessage.map { String(cString: $0) } ?? "Unknown SQL error"
+            sqlite3_free(errorMessage)
+            throw HistoryStoreError.sqlError(message: message)
+        }
     }
 
     private func execute(_ sql: String) throws {
@@ -577,6 +641,26 @@ public actor HistoryStore {
 
         let combined = "\(date) \(time)"
         return formatter.date(from: combined) ?? Date()
+    }
+
+    private func persistAudioArtifact(sessionID: UUID, sourcePath: URL) throws -> URL {
+        let extensionComponent = sourcePath.pathExtension.isEmpty ? "caf" : sourcePath.pathExtension
+        let destinationDirectory = baseURL
+            .appendingPathComponent("media", isDirectory: true)
+            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
+        let destination = destinationDirectory.appendingPathComponent("recording.\(extensionComponent)")
+
+        if sourcePath.standardizedFileURL == destination.standardizedFileURL {
+            return destination
+        }
+
+        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: destination)
+        }
+        try fileManager.copyItem(at: sourcePath, to: destination)
+
+        return destination
     }
 }
 

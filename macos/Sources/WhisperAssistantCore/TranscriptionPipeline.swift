@@ -251,7 +251,7 @@ public actor TranscriptionPipeline {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 if await provider.checkHealth(timeoutSeconds: requestTimeoutSeconds) {
-                    await clearFallbackStickyWindow()
+                    clearFallbackStickyWindow()
                     return
                 }
             }

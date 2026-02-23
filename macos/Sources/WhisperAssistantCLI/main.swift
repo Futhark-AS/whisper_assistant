@@ -2,6 +2,12 @@ import ArgumentParser
 import Foundation
 import WhisperAssistantCore
 
+private func localWhisperAssistantBinaryURL() -> URL? {
+    let currentExecutable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+    let sibling = currentExecutable.deletingLastPathComponent().appendingPathComponent("WhisperAssistant")
+    return FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling : nil
+}
+
 @main
 struct WhisperAssistantCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -24,12 +30,25 @@ struct Start: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Launch Whisper Assistant app")
 
     mutating func run() async throws {
+        if let localBinary = localWhisperAssistantBinaryURL() {
+            let localProcess = Process()
+            localProcess.executableURL = localBinary
+            try localProcess.run()
+            print("start requested (local binary)")
+            return
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "WhisperAssistant"]
         try process.run()
         process.waitUntilExit()
-        print("start requested")
+        if process.terminationStatus == 0 {
+            print("start requested")
+            return
+        }
+
+        throw ValidationError("open failed with status \(process.terminationStatus)")
     }
 }
 
@@ -42,7 +61,14 @@ struct Stop: AsyncParsableCommand {
         process.arguments = ["-x", "WhisperAssistant"]
         try process.run()
         process.waitUntilExit()
-        print("stop requested")
+        switch process.terminationStatus {
+        case 0:
+            print("stop requested")
+        case 1:
+            print("no running WhisperAssistant process found")
+        default:
+            throw ValidationError("pkill failed with status \(process.terminationStatus)")
+        }
     }
 }
 
@@ -162,17 +188,11 @@ struct History: AsyncParsableCommand {
             }
 
             let target = sessions[index - 1]
-            let storageBase = await store.storageBasePath()
-            let base = storageBase.appendingPathComponent("media/\(target.sessionID.uuidString)")
-            let flac = base.appendingPathComponent("recording.flac")
-            let wav = base.appendingPathComponent("recording.wav")
-            let source: URL
-            if FileManager.default.fileExists(atPath: flac.path) {
-                source = flac
-            } else if FileManager.default.fileExists(atPath: wav.path) {
-                source = wav
-            } else {
-                throw ValidationError("No media file found for selected session")
+            guard let source = try await store.primaryAudioFileURL(sessionID: target.sessionID) else {
+                throw ValidationError("No media path recorded for selected session")
+            }
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw ValidationError("Recorded media path does not exist: \(source.path)")
             }
 
             let process = Process()
@@ -180,6 +200,9 @@ struct History: AsyncParsableCommand {
             process.arguments = [source.path]
             try process.run()
             process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw ValidationError("afplay failed with status \(process.terminationStatus)")
+            }
         }
     }
 
@@ -200,17 +223,11 @@ struct History: AsyncParsableCommand {
             }
 
             let target = sessions[index - 1]
-            let storageBase = await store.storageBasePath()
-            let base = storageBase.appendingPathComponent("media/\(target.sessionID.uuidString)")
-            let flac = base.appendingPathComponent("recording.flac")
-            let wav = base.appendingPathComponent("recording.wav")
-            let source: URL
-            if FileManager.default.fileExists(atPath: flac.path) {
-                source = flac
-            } else if FileManager.default.fileExists(atPath: wav.path) {
-                source = wav
-            } else {
-                throw ValidationError("No media file found for selected session")
+            guard let source = try await store.primaryAudioFileURL(sessionID: target.sessionID) else {
+                throw ValidationError("No media path recorded for selected session")
+            }
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw ValidationError("Recorded media path does not exist: \(source.path)")
             }
 
             var command = Transcribe()

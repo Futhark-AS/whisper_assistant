@@ -118,7 +118,7 @@ public actor PermissionCoordinator {
     }
 
     private func accessibilityStatus() -> PermissionState {
-        let trusted = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt as String: false] as CFDictionary)
+        let trusted = AXIsProcessTrusted()
         return trusted ? .granted : .denied
     }
 

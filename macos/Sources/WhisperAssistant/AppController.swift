@@ -49,11 +49,7 @@ actor AppControllerActor {
     func boot() async {
         do {
             settings = try await configurationManager.loadSettings()
-            try await hotkeyManager.setBindings(settings.hotkeys) { [weak self] action in
-                Task {
-                    await self?.handleHotkey(actionID: action)
-                }
-            }
+            try await applyHotkeyBindings()
 
             await audioEngine.prepareEngine()
             let permissionSnapshot = await permissionCoordinator.checkAll()
@@ -104,6 +100,25 @@ actor AppControllerActor {
         }
     }
 
+    func reloadSettingsFromDisk() async {
+        do {
+            settings = try await configurationManager.loadSettings()
+            try await applyHotkeyBindings()
+            await diagnostics.emit(
+                DiagnosticEvent(name: "settings_reloaded", sessionID: nil, attributes: ["source": "preferences"])
+            )
+            await pushUI()
+        } catch {
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "settings_reload_failed",
+                    sessionID: nil,
+                    attributes: ["error": String(describing: error)]
+                )
+            )
+        }
+    }
+
     func handleMenuAction(_ action: AppAction) async {
         switch action {
         case .startRecording:
@@ -128,6 +143,10 @@ actor AppControllerActor {
         case .refreshDevices:
             await audioEngine.prepareEngine()
             await pushUI()
+        case .runChecks:
+            await runChecksFlow()
+        case .retryRegistration, .rebindHotkey:
+            await retryHotkeyRegistrationFlow()
         default:
             await diagnostics.emit(
                 DiagnosticEvent(name: "menu_action", sessionID: nil, attributes: ["action": action.rawValue])
@@ -250,6 +269,7 @@ actor AppControllerActor {
             isRecording = false
             try? await lifecycle.transition(to: .retryAvailable)
             await lifecycle.setLastErrorCode("pipeline_failed")
+            await lifecycle.endSession()
             await pushUI()
         }
     }
@@ -270,9 +290,11 @@ actor AppControllerActor {
             _ = try await outputRouter.route(text: result.text, mode: settings.outputMode, profile: settings.buildProfile)
 
             try await lifecycle.transition(to: .ready)
+            await lifecycle.endSession()
             await pushUI()
         } catch {
             try? await lifecycle.transition(to: .retryAvailable)
+            await lifecycle.endSession()
             await pushUI()
         }
     }
@@ -285,9 +307,95 @@ actor AppControllerActor {
         await pushUI()
     }
 
+    private func retryHotkeyRegistrationFlow() async {
+        do {
+            try await applyHotkeyBindings()
+            await lifecycle.setLastErrorCode(nil)
+            try? await lifecycle.transition(to: .ready)
+        } catch {
+            await lifecycle.setLastErrorCode("hotkey_registration_failed")
+            try? await lifecycle.transition(to: .degraded, degradedReason: .hotkeyFailure)
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "hotkey_registration_retry_failed",
+                    sessionID: nil,
+                    attributes: ["error": String(describing: error)]
+                )
+            )
+        }
+        await pushUI()
+    }
+
+    private func runChecksFlow() async {
+        let permissions = await permissionCoordinator.checkAll()
+        let connectivity = await transcriptionPipeline.connectivityCheck(primary: settings.provider.primary, fallback: settings.provider.fallback)
+
+        var hotkeysReady = true
+        do {
+            try await applyHotkeyBindings()
+        } catch {
+            hotkeysReady = false
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "run_checks_hotkey_registration_failed",
+                    sessionID: nil,
+                    attributes: ["error": String(describing: error)]
+                )
+            )
+        }
+
+        await diagnostics.emit(
+            DiagnosticEvent(
+                name: "run_checks_completed",
+                sessionID: nil,
+                attributes: [
+                    "microphone": permissions.microphone.rawValue,
+                    "accessibility": permissions.accessibility.rawValue,
+                    "inputMonitoring": permissions.inputMonitoring.rawValue,
+                    "providerPrimaryOK": connectivity.primaryOK ? "true" : "false",
+                    "providerFallbackOK": connectivity.fallbackOK ? "true" : "false",
+                    "hotkeysReady": hotkeysReady ? "true" : "false"
+                ]
+            )
+        )
+
+        if !permissions.isFullyReady {
+            await lifecycle.setLastErrorCode("permissions_not_ready")
+            try? await lifecycle.transition(to: .degraded, degradedReason: .permissions)
+            await pushUI()
+            return
+        }
+
+        if !hotkeysReady {
+            await lifecycle.setLastErrorCode("hotkey_registration_failed")
+            try? await lifecycle.transition(to: .degraded, degradedReason: .hotkeyFailure)
+            await pushUI()
+            return
+        }
+
+        if !(connectivity.primaryOK || connectivity.fallbackOK) {
+            await lifecycle.setLastErrorCode("provider_connectivity_failed")
+            try? await lifecycle.transition(to: .degraded, degradedReason: .providerUnavailable)
+            await pushUI()
+            return
+        }
+
+        await lifecycle.setLastErrorCode(nil)
+        try? await lifecycle.transition(to: .ready)
+        await pushUI()
+    }
+
     private func pushUI() async {
         let snapshot = await lifecycle.snapshot()
         let contract = await lifecycle.uiContract()
         await uiUpdate(snapshot, contract)
+    }
+
+    private func applyHotkeyBindings() async throws {
+        try await hotkeyManager.setBindings(settings.hotkeys) { [weak self] action in
+            Task {
+                await self?.handleHotkey(actionID: action)
+            }
+        }
     }
 }

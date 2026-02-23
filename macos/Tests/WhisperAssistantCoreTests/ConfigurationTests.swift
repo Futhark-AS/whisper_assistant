@@ -10,7 +10,7 @@ final class ConfigurationTests: XCTestCase {
         }
         defaults.removePersistentDomain(forName: suiteName)
 
-        let manager = ConfigurationManager(userDefaults: defaults)
+        let manager = ConfigurationManager(userDefaults: defaults, sharedConfigEnabled: false)
         let settings = try await manager.loadSettings()
 
         XCTAssertEqual(settings.outputMode, .clipboardAndPaste)
@@ -25,7 +25,7 @@ final class ConfigurationTests: XCTestCase {
         }
         defaults.removePersistentDomain(forName: suiteName)
 
-        let manager = ConfigurationManager(userDefaults: defaults)
+        let manager = ConfigurationManager(userDefaults: defaults, sharedConfigEnabled: false)
         var invalid = AppSettings.default
         invalid.provider.timeoutSeconds = 0
         invalid.hotkeys = []
@@ -35,10 +35,25 @@ final class ConfigurationTests: XCTestCase {
             try await manager.validate(settings: invalid)
             XCTFail("Expected aggregated validation failure")
         } catch let error as SettingsValidationErrorSet {
-            XCTAssertGreaterThanOrEqual(error.issues.count, 3)
+            XCTAssertGreaterThanOrEqual(error.issues.count, 2)
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testValidationAllowsNoHotkeys() async throws {
+        let suiteName = "ConfigurationTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let manager = ConfigurationManager(userDefaults: defaults, sharedConfigEnabled: false)
+        var settings = AppSettings.default
+        settings.hotkeys = []
+
+        try await manager.validate(settings: settings)
     }
 
     func testSaveAndReloadSettings() async throws {
@@ -49,7 +64,7 @@ final class ConfigurationTests: XCTestCase {
         }
         defaults.removePersistentDomain(forName: suiteName)
 
-        let manager = ConfigurationManager(userDefaults: defaults)
+        let manager = ConfigurationManager(userDefaults: defaults, sharedConfigEnabled: false)
         var settings = AppSettings.default
         settings.language = "en"
         settings.outputMode = .clipboard

@@ -14,30 +14,53 @@ public actor ConfigurationManager {
     private enum Constants {
         static let userDefaultsKey = "whisper.assistant.settings.v1"
         static let keychainService = "com.whisperassistant.keys"
+        static let secretsFileName = "api-keys.json"
+        static let sharedConfigDirectoryName = "whisper-assistant"
+        static let sharedConfigFileName = "config.env"
+
+        static let envGroqAPIKey = "GROQ_API_KEY"
+        static let envOpenAIAPIKey = "OPENAI_API_KEY"
+        static let envToggleHotkey = "TOGGLE_RECORDING_HOTKEY"
+        static let envRetryHotkey = "RETRY_TRANSCRIPTION_HOTKEY"
+        static let envCancelHotkey = "CANCEL_RECORDING_HOTKEY"
+        static let envLanguage = "TRANSCRIPTION_LANGUAGE"
+        static let envOutput = "TRANSCRIPTION_OUTPUT"
+        static let envLaunchAtLogin = "LAUNCH_AT_LOGIN"
+        static let envWhisperModel = "WHISPER_MODEL"
+        static let envTimeout = "GROQ_TIMEOUT"
+        static let envVocabulary = "VOCABULARY"
     }
 
     private let userDefaults: UserDefaults
+    private let sharedConfigEnabled: Bool
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     /// Creates a configuration manager.
-    public init(userDefaults: UserDefaults = .standard) {
+    public init(userDefaults: UserDefaults = .standard, sharedConfigEnabled: Bool = true) {
         self.userDefaults = userDefaults
+        self.sharedConfigEnabled = sharedConfigEnabled
     }
 
     /// Loads persisted settings or returns defaults when not yet configured.
     public func loadSettings() throws -> AppSettings {
-        guard let data = userDefaults.data(forKey: Constants.userDefaultsKey) else {
-            return .default
+        var settings = AppSettings.default
+
+        if let data = userDefaults.data(forKey: Constants.userDefaultsKey) {
+            do {
+                settings = try decoder.decode(AppSettings.self, from: data)
+            } catch {
+                // Corrupt local settings should not block fallback to shared config.
+                settings = .default
+            }
         }
 
-        do {
-            let settings = try decoder.decode(AppSettings.self, from: data)
-            try validate(settings: settings)
-            return settings
-        } catch {
-            throw ConfigurationError.settingsNotFound
+        if sharedConfigEnabled, let shared = try loadSettingsFromSharedConfig(base: settings) {
+            settings = shared
         }
+
+        try validate(settings: settings)
+        return settings
     }
 
     /// Validates and stores settings in UserDefaults.
@@ -45,36 +68,67 @@ public actor ConfigurationManager {
         try validate(settings: settings)
         let data = try encoder.encode(settings)
         userDefaults.set(data, forKey: Constants.userDefaultsKey)
+        if sharedConfigEnabled {
+            try saveSettingsToSharedConfig(settings)
+        }
     }
 
     /// Stores provider API key in Keychain.
     public func saveAPIKey(_ key: String, for provider: ProviderKind) throws {
-        let account = provider.rawValue
-        let data = Data(key.utf8)
+        var secrets = try loadLocalSecrets()
+        secrets[provider.rawValue] = key
+        try saveLocalSecrets(secrets)
 
+        if sharedConfigEnabled {
+            var sharedConfig = try loadSharedConfigValues()
+            switch provider {
+            case .groq:
+                sharedConfig[Constants.envGroqAPIKey] = key
+            case .openAI:
+                sharedConfig[Constants.envOpenAIAPIKey] = key
+            }
+            try saveSharedConfigValues(sharedConfig)
+        }
+
+        // Best effort: delete legacy keychain item to avoid repeated access prompts.
         let deleteQuery: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: Constants.keychainService,
-            kSecAttrAccount: account
+            kSecAttrAccount: provider.rawValue
         ]
         SecItemDelete(deleteQuery as CFDictionary)
-
-        let addQuery: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: Constants.keychainService,
-            kSecAttrAccount: account,
-            kSecValueData: data,
-            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock
-        ]
-
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw ConfigurationError.keychainFailure(status: status)
-        }
     }
 
-    /// Reads provider API key from Keychain.
+    /// Reads provider API key from local secrets first, then keychain fallback.
     public func loadAPIKey(for provider: ProviderKind) throws -> String? {
+        let localSecrets = try loadLocalSecrets()
+        if let local = localSecrets[provider.rawValue], !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return local
+        }
+
+        if sharedConfigEnabled {
+            let sharedConfig = try loadSharedConfigValues()
+            let sharedKeyName = (provider == .groq) ? Constants.envGroqAPIKey : Constants.envOpenAIAPIKey
+            if let shared = sharedConfig[sharedKeyName], !shared.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                var updated = localSecrets
+                updated[provider.rawValue] = shared
+                try? saveLocalSecrets(updated)
+                return shared
+            }
+        }
+
+        guard let migrated = try loadAPIKeyFromKeychain(for: provider) else {
+            return nil
+        }
+
+        // Migrate keychain value to local secrets to eliminate repeated keychain prompts.
+        var updated = localSecrets
+        updated[provider.rawValue] = migrated
+        try? saveLocalSecrets(updated)
+        return migrated
+    }
+
+    private func loadAPIKeyFromKeychain(for provider: ProviderKind) throws -> String? {
         let account = provider.rawValue
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -105,9 +159,249 @@ public actor ConfigurationManager {
         return value
     }
 
+    private func loadLocalSecrets() throws -> [String: String] {
+        let path = secretsFileURL()
+        guard FileManager.default.fileExists(atPath: path.path) else {
+            return [:]
+        }
+
+        let data = try Data(contentsOf: path)
+        let decoded = try JSONDecoder().decode([String: String].self, from: data)
+        return decoded
+    }
+
+    private func saveLocalSecrets(_ secrets: [String: String]) throws {
+        let fileURL = secretsFileURL()
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let data = try JSONEncoder().encode(secrets)
+        try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private func secretsFileURL() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Whisper Assistant", isDirectory: true)
+        return appSupport.appendingPathComponent("secrets", isDirectory: true)
+            .appendingPathComponent(Constants.secretsFileName)
+    }
+
+    private func loadSettingsFromSharedConfig(base: AppSettings) throws -> AppSettings? {
+        let shared = try loadSharedConfigValues()
+        guard !shared.isEmpty else {
+            return nil
+        }
+
+        var settings = base
+
+        if let language = shared[Constants.envLanguage]?.trimmingCharacters(in: .whitespacesAndNewlines), !language.isEmpty {
+            settings.language = language.lowercased() == "auto" ? "auto" : language
+        }
+
+        if let outputValue = shared[Constants.envOutput] {
+            settings.outputMode = parseSharedOutputMode(outputValue)
+        }
+
+        if let launchAtLoginValue = shared[Constants.envLaunchAtLogin], let launchAtLogin = parseSharedBool(launchAtLoginValue) {
+            settings.launchAtLoginEnabled = launchAtLogin
+        }
+
+        if let model = shared[Constants.envWhisperModel]?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
+            settings.provider.groqModel = model
+        }
+
+        if let timeoutRaw = shared[Constants.envTimeout], let parsed = Int(timeoutRaw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            settings.provider.timeoutSeconds = min(max(parsed, 1), 120)
+        }
+
+        if let vocabularyRaw = shared[Constants.envVocabulary] {
+            settings.vocabularyHints = vocabularyRaw
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+
+        var parsedHotkeys: [HotkeyBinding] = []
+        if let toggle = parseSharedHotkey(shared[Constants.envToggleHotkey], actionID: "toggle") {
+            parsedHotkeys.append(toggle)
+        }
+        if let retry = parseSharedHotkey(shared[Constants.envRetryHotkey], actionID: "retry") {
+            parsedHotkeys.append(retry)
+        }
+        if let cancel = parseSharedHotkey(shared[Constants.envCancelHotkey], actionID: "cancel") {
+            parsedHotkeys.append(cancel)
+        }
+        if !parsedHotkeys.isEmpty {
+            settings.hotkeys = parsedHotkeys
+        }
+
+        try validate(settings: settings)
+        return settings
+    }
+
+    private func saveSettingsToSharedConfig(_ settings: AppSettings) throws {
+        var shared = try loadSharedConfigValues()
+
+        shared[Constants.envLanguage] = settings.language.isEmpty ? "auto" : settings.language
+        shared[Constants.envOutput] = sharedOutputString(settings.outputMode)
+        shared[Constants.envLaunchAtLogin] = settings.launchAtLoginEnabled ? "true" : "false"
+        shared[Constants.envWhisperModel] = settings.provider.groqModel
+        shared[Constants.envTimeout] = String(settings.provider.timeoutSeconds)
+        shared[Constants.envVocabulary] = settings.vocabularyHints.joined(separator: ",")
+
+        let byAction = Dictionary(uniqueKeysWithValues: settings.hotkeys.map { ($0.actionID, $0) })
+        if let toggle = byAction["toggle"], let rendered = renderSharedHotkey(toggle) {
+            shared[Constants.envToggleHotkey] = rendered
+        }
+        if let retry = byAction["retry"], let rendered = renderSharedHotkey(retry) {
+            shared[Constants.envRetryHotkey] = rendered
+        }
+        if let cancel = byAction["cancel"], let rendered = renderSharedHotkey(cancel) {
+            shared[Constants.envCancelHotkey] = rendered
+        }
+
+        try saveSharedConfigValues(shared)
+    }
+
+    private func loadSharedConfigValues() throws -> [String: String] {
+        let path = sharedConfigFileURL()
+        guard FileManager.default.fileExists(atPath: path.path) else {
+            return [:]
+        }
+
+        let content = try String(contentsOf: path, encoding: .utf8)
+        var result: [String: String] = [:]
+
+        for line in content.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") {
+                continue
+            }
+            guard let separator = trimmed.firstIndex(of: "=") else {
+                continue
+            }
+            let key = String(trimmed[..<separator]).trimmingCharacters(in: .whitespaces)
+            let value = String(trimmed[trimmed.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+            result[key] = value
+        }
+
+        return result
+    }
+
+    private func saveSharedConfigValues(_ values: [String: String]) throws {
+        let fileURL = sharedConfigFileURL()
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let orderedKeys: [String] = [
+            Constants.envGroqAPIKey,
+            Constants.envOpenAIAPIKey,
+            Constants.envToggleHotkey,
+            Constants.envRetryHotkey,
+            Constants.envCancelHotkey,
+            Constants.envLanguage,
+            Constants.envOutput,
+            Constants.envLaunchAtLogin,
+            Constants.envWhisperModel,
+            Constants.envTimeout,
+            Constants.envVocabulary
+        ]
+
+        let extras = values.keys.filter { !orderedKeys.contains($0) }.sorted()
+        let finalOrder = orderedKeys + extras
+
+        var lines: [String] = ["# Managed by WhisperAssistant macOS app"]
+        for key in finalOrder {
+            guard let value = values[key] else {
+                continue
+            }
+            lines.append("\(key)=\(value)")
+        }
+
+        try lines.joined(separator: "\n").appending("\n").write(to: fileURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    private func sharedConfigFileURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        let configHome: URL
+        if let xdg = environment["XDG_CONFIG_HOME"], !xdg.isEmpty {
+            configHome = URL(fileURLWithPath: xdg, isDirectory: true)
+        } else {
+            configHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config", isDirectory: true)
+        }
+
+        return configHome
+            .appendingPathComponent(Constants.sharedConfigDirectoryName, isDirectory: true)
+            .appendingPathComponent(Constants.sharedConfigFileName)
+    }
+
+    private func parseSharedOutputMode(_ value: String) -> OutputMode {
+        let options = Set(
+            value
+                .lowercased()
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        )
+
+        if options.contains("none") || options.isEmpty {
+            return .none
+        }
+
+        let clipboard = options.contains("clipboard")
+        let paste = options.contains("paste_on_cursor")
+
+        switch (clipboard, paste) {
+        case (true, true):
+            return .clipboardAndPaste
+        case (true, false):
+            return .clipboard
+        case (false, true):
+            return .pasteAtCursor
+        default:
+            return .none
+        }
+    }
+
+    private func sharedOutputString(_ mode: OutputMode) -> String {
+        switch mode {
+        case .none:
+            return "none"
+        case .clipboard:
+            return "clipboard"
+        case .pasteAtCursor:
+            return "paste_on_cursor"
+        case .clipboardAndPaste:
+            return "clipboard,paste_on_cursor"
+        }
+    }
+
+    private func parseSharedHotkey(_ value: String?, actionID: String) -> HotkeyBinding? {
+        guard let value else { return nil }
+        return HotkeyCodec.parse(value, actionID: actionID)
+    }
+
+    private func renderSharedHotkey(_ binding: HotkeyBinding) -> String? {
+        HotkeyCodec.render(binding)
+    }
+
+    private func parseSharedBool(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
+    }
+
     /// Validates all settings and throws aggregated failures.
     public func validate(settings: AppSettings) throws {
         var issues: [SettingsValidationIssue] = []
+        let allowedHotkeyActions: Set<String> = ["toggle", "retry", "cancel"]
 
         if settings.provider.timeoutSeconds < 1 || settings.provider.timeoutSeconds > 120 {
             issues.append(SettingsValidationIssue(field: "provider.timeoutSeconds", message: "Timeout must be between 1 and 120 seconds"))
@@ -129,6 +423,9 @@ public actor ConfigurationManager {
 
         var seenActions = Set<String>()
         for hotkey in settings.hotkeys {
+            if !allowedHotkeyActions.contains(hotkey.actionID) {
+                issues.append(SettingsValidationIssue(field: "hotkeys.\(hotkey.actionID)", message: "Unsupported actionID"))
+            }
             if seenActions.contains(hotkey.actionID) {
                 issues.append(SettingsValidationIssue(field: "hotkeys", message: "Duplicate actionID \(hotkey.actionID)"))
             }
@@ -137,10 +434,6 @@ public actor ConfigurationManager {
             if hotkey.modifiers.isEmpty {
                 issues.append(SettingsValidationIssue(field: "hotkeys.\(hotkey.actionID)", message: "At least one modifier is required"))
             }
-        }
-
-        if !seenActions.contains("toggle") {
-            issues.append(SettingsValidationIssue(field: "hotkeys", message: "Missing required toggle hotkey"))
         }
 
         if settings.provider.groqModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -166,6 +459,7 @@ public actor ConfigurationManager {
             "outputMode": settings.outputMode.rawValue,
             "language": settings.language,
             "recordingInteraction": settings.recordingInteraction.rawValue,
+            "launchAtLoginEnabled": settings.launchAtLoginEnabled ? "true" : "false",
             "primaryProvider": settings.provider.primary.rawValue,
             "fallbackProvider": settings.provider.fallback.rawValue,
             "timeoutSeconds": String(settings.provider.timeoutSeconds),

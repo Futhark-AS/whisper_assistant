@@ -5,7 +5,7 @@ import WhisperAssistantCore
 @MainActor
 final class MenuBarController: NSObject {
     private let statusItem: NSStatusItem
-    private var actionHandler: (@Sendable (AppAction) -> Void)?
+    private var actionHandler: ((AppAction) -> Void)?
     private var lastSnapshot: AppLifecycleSnapshot?
     private var lastContract: UIStateContract?
 
@@ -15,7 +15,7 @@ final class MenuBarController: NSObject {
         configureStatusItemAppearance(iconName: "mic")
     }
 
-    func setActionHandler(_ handler: @escaping @Sendable (AppAction) -> Void) {
+    func setActionHandler(_ handler: @escaping (AppAction) -> Void) {
         actionHandler = handler
     }
 
@@ -44,12 +44,6 @@ final class MenuBarController: NSObject {
             }
             menu.addItem(makeActionItem(for: .viewLastError))
             menu.addItem(makeActionItem(for: .exportDiagnostics))
-        }
-
-        if snapshot.phase == .ready {
-            menu.addItem(.separator())
-            menu.addItem(makeActionItem(for: .preferences))
-            menu.addItem(makeActionItem(for: .history))
         }
 
         menu.addItem(.separator())

@@ -57,7 +57,7 @@ public actor OutputRouter {
     }
 
     private func pasteViaSyntheticCommandV() throws {
-        let trusted = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt as String: false] as CFDictionary)
+        let trusted = AXIsProcessTrusted()
         guard trusted else {
             throw OutputRouterError.accessibilityPermissionRequired
         }

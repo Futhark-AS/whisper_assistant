@@ -5,6 +5,7 @@ import SwiftUI
 import WhisperAssistantCore
 
 /// Application delegate responsible for bootstrapping services and windows.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private var appController: AppControllerActor?
@@ -118,9 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        if bootSettings.buildProfile == .direct {
-            updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
-        }
+        configureUpdaterIfSupported(settings: bootSettings)
 
         registerForLoginAtStartupIfEnabled(settings: bootSettings)
 
@@ -128,12 +127,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showPreferences(configurationManager: ConfigurationManager) {
-        let view = PreferencesView(configurationManager: configurationManager)
+        let view = PreferencesView(configurationManager: configurationManager) { [weak self] in
+            Task {
+                await self?.appController?.reloadSettingsFromDisk()
+                if let latestSettings = try? await configurationManager.loadSettings() {
+                    self?.applyLaunchAtLoginPreference(settings: latestSettings)
+                }
+            }
+        }
         let controller = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: controller)
         window.title = "Preferences"
-        window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 520, height: 460))
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.setContentSize(NSSize(width: 620, height: 680))
 
         let windowController = NSWindowController(window: window)
         windowController.showWindow(nil)
@@ -156,15 +162,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerForLoginAtStartupIfEnabled(settings: AppSettings) {
-        guard settings.recordingInteraction == .toggle else {
+        applyLaunchAtLoginPreference(settings: settings)
+    }
+
+    private func applyLaunchAtLoginPreference(settings: AppSettings) {
+        guard Bundle.main.bundlePath.hasSuffix(".app") else {
             return
         }
 
         do {
-            try SMAppService.mainApp.register()
+            if settings.launchAtLoginEnabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
         } catch {
-            // Login registration failures should not block launch.
+            // Launch-at-login failures should not block launch.
         }
+    }
+
+    private func configureUpdaterIfSupported(settings: AppSettings) {
+        guard settings.buildProfile == .direct else {
+            return
+        }
+        guard Bundle.main.bundlePath.hasSuffix(".app") else {
+            return
+        }
+        guard Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil else {
+            return
+        }
+
+        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     }
 
     private func presentFatalError(message: String) {

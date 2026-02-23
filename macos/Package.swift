@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
@@ -21,8 +21,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0")
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.7.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.9.0")
     ],
     targets: [
         .target(

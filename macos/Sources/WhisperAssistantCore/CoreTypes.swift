@@ -54,6 +54,8 @@ public struct HotkeyModifiers: OptionSet, Codable, Sendable, Hashable {
     public static let control = HotkeyModifiers(rawValue: 1 << 2)
     /// Shift key.
     public static let shift = HotkeyModifiers(rawValue: 1 << 3)
+    /// Function (Fn) key.
+    public static let function = HotkeyModifiers(rawValue: 1 << 4)
 }
 
 /// A concrete hotkey binding.
@@ -71,6 +73,11 @@ public struct HotkeyBinding: Codable, Hashable, Sendable {
         self.keyCode = keyCode
         self.modifiers = modifiers
     }
+}
+
+public extension HotkeyBinding {
+    /// Sentinel key code representing a modifier-only chord.
+    static let modifiersOnlyKeyCode: UInt32 = UInt32.max
 }
 
 /// Provider credentials and request-time settings.
@@ -122,6 +129,8 @@ public struct AppSettings: Codable, Sendable {
     public var vocabularyHints: [String]
     /// Primary interaction mode.
     public var recordingInteraction: RecordingInteractionMode
+    /// Whether app should register for launch at login.
+    public var launchAtLoginEnabled: Bool
     /// Declared hotkey mappings.
     public var hotkeys: [HotkeyBinding]
     /// Provider-specific settings.
@@ -134,6 +143,7 @@ public struct AppSettings: Codable, Sendable {
         language: String,
         vocabularyHints: [String],
         recordingInteraction: RecordingInteractionMode,
+        launchAtLoginEnabled: Bool,
         hotkeys: [HotkeyBinding],
         provider: ProviderConfiguration
     ) {
@@ -142,6 +152,7 @@ public struct AppSettings: Codable, Sendable {
         self.language = language
         self.vocabularyHints = vocabularyHints
         self.recordingInteraction = recordingInteraction
+        self.launchAtLoginEnabled = launchAtLoginEnabled
         self.hotkeys = hotkeys
         self.provider = provider
     }
@@ -153,10 +164,11 @@ public struct AppSettings: Codable, Sendable {
         language: "auto",
         vocabularyHints: [],
         recordingInteraction: .toggle,
+        launchAtLoginEnabled: true,
         hotkeys: [
-            HotkeyBinding(actionID: "toggle", keyCode: 18, modifiers: [.control, .shift]),
-            HotkeyBinding(actionID: "retry", keyCode: 19, modifiers: [.control, .shift]),
-            HotkeyBinding(actionID: "cancel", keyCode: 20, modifiers: [.control, .shift])
+            HotkeyBinding(actionID: "toggle", keyCode: HotkeyBinding.modifiersOnlyKeyCode, modifiers: [.control, .function]),
+            HotkeyBinding(actionID: "retry", keyCode: 15, modifiers: [.control, .function]),
+            HotkeyBinding(actionID: "cancel", keyCode: 53, modifiers: [.control, .function])
         ],
         provider: ProviderConfiguration(
             primary: .groq,
@@ -168,6 +180,43 @@ public struct AppSettings: Codable, Sendable {
             openAIModel: "gpt-4o-mini-transcribe"
         )
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case buildProfile
+        case outputMode
+        case language
+        case vocabularyHints
+        case recordingInteraction
+        case launchAtLoginEnabled
+        case hotkeys
+        case provider
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AppSettings.default
+
+        buildProfile = try container.decodeIfPresent(BuildProfile.self, forKey: .buildProfile) ?? defaults.buildProfile
+        outputMode = try container.decodeIfPresent(OutputMode.self, forKey: .outputMode) ?? defaults.outputMode
+        language = try container.decodeIfPresent(String.self, forKey: .language) ?? defaults.language
+        vocabularyHints = try container.decodeIfPresent([String].self, forKey: .vocabularyHints) ?? defaults.vocabularyHints
+        recordingInteraction = try container.decodeIfPresent(RecordingInteractionMode.self, forKey: .recordingInteraction) ?? defaults.recordingInteraction
+        launchAtLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .launchAtLoginEnabled) ?? defaults.launchAtLoginEnabled
+        hotkeys = try container.decodeIfPresent([HotkeyBinding].self, forKey: .hotkeys) ?? defaults.hotkeys
+        provider = try container.decodeIfPresent(ProviderConfiguration.self, forKey: .provider) ?? defaults.provider
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(buildProfile, forKey: .buildProfile)
+        try container.encode(outputMode, forKey: .outputMode)
+        try container.encode(language, forKey: .language)
+        try container.encode(vocabularyHints, forKey: .vocabularyHints)
+        try container.encode(recordingInteraction, forKey: .recordingInteraction)
+        try container.encode(launchAtLoginEnabled, forKey: .launchAtLoginEnabled)
+        try container.encode(hotkeys, forKey: .hotkeys)
+        try container.encode(provider, forKey: .provider)
+    }
 }
 
 /// A single settings validation error.

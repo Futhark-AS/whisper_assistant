@@ -53,6 +53,29 @@ whisper-assistant history transcribe 1  # re-transcribe most recent
 whisper-assistant transcribe /path/to/audio.wav
 ```
 
+## macOS App Downloads (GitHub Releases)
+
+For friends who want a direct app download:
+
+1. Open GitHub Releases and download `WhisperAssistant.dmg` (or `WhisperAssistant.app.zip`).
+2. Move `WhisperAssistant.app` to `/Applications`.
+3. Launch app and grant requested permissions.
+
+Release publishing is automated:
+
+- Push a tag like `v1.2.3`
+- GitHub Actions builds and uploads:
+  - `WhisperAssistant.dmg`
+  - `WhisperAssistant.app.zip`
+  - `wa-macos.zip`
+  - `SHA256SUMS.txt`
+
+Optional signing/notarization in CI is enabled when these repo secrets exist:
+- `APPLE_SIGNING_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_PASSWORD`
+
 **Default hotkeys:**
 - `Ctrl+Shift+1` — Toggle recording (press to start, press again to stop and transcribe)
 - `Ctrl+Shift+2` — Retry last transcription
