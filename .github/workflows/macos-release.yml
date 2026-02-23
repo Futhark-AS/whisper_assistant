@@ -12,6 +12,14 @@ permissions:
 jobs:
   release:
     runs-on: macos-15
+    env:
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+      APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +30,7 @@ jobs:
           xcode-version: "16.4"
 
       - name: Import Developer ID certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' }}
         run: |
           CERT_PATH="$RUNNER_TEMP/apple_certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
@@ -48,22 +52,26 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
       - name: Resolve signing identity
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY == '' }}
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' && env.APPLE_CERTIFICATE_PASSWORD != '' && env.APPLE_SIGNING_IDENTITY_SECRET == '' }}
         run: |
           IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           if [[ -z "$IDENTITY" ]]; then
             echo "No Developer ID Application identity found"
             exit 1
           fi
-          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "RESOLVED_APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
       - name: Build and package artifacts
         env:
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY || secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: macos/scripts/package-release.sh
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY_SECRET }}
+          APPLE_ID: ${{ env.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ env.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ env.APPLE_APP_PASSWORD }}
+        run: |
+          if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]] && [[ -n "${RESOLVED_APPLE_SIGNING_IDENTITY:-}" ]]; then
+            export APPLE_SIGNING_IDENTITY="$RESOLVED_APPLE_SIGNING_IDENTITY"
+          fi
+          macos/scripts/package-release.sh
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
