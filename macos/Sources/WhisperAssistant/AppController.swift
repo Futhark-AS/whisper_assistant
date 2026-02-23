@@ -125,10 +125,14 @@ actor AppControllerActor {
             await startRecordingFlow()
         case .stop:
             await stopRecordingFlow()
+        case .forceStop:
+            await cancelFlow()
         case .cancel:
             await cancelFlow()
         case .retry:
             await retryFlow()
+        case .switchProvider:
+            await switchProviderFlow()
         case .useClipboardOnly:
             settings.outputMode = .clipboard
             do {
@@ -152,6 +156,32 @@ actor AppControllerActor {
                 DiagnosticEvent(name: "menu_action", sessionID: nil, attributes: ["action": action.rawValue])
             )
         }
+    }
+
+    func lastErrorDescription() async -> String {
+        let snapshot = await lifecycle.snapshot()
+        guard let code = snapshot.lastErrorCode else {
+            return "No recent error recorded."
+        }
+
+        let mapped: String
+        switch code {
+        case "capture_open_failed":
+            mapped = "Audio capture failed to start. Check microphone access and selected input device."
+        case "pipeline_failed":
+            mapped = "Transcription pipeline failed. Retry or switch provider."
+        case "permissions_not_ready":
+            mapped = "Required permissions are missing. Open System Settings and grant access."
+        case "hotkey_registration_failed":
+            mapped = "Global hotkey registration failed. Try different hotkeys or re-run checks."
+        case "provider_connectivity_failed":
+            mapped = "Both transcription providers failed connectivity checks."
+        default:
+            mapped = "An unexpected runtime error occurred."
+        }
+
+        let degraded = snapshot.degradedReason?.rawValue ?? "none"
+        return "code=\(code)\nphase=\(snapshot.phase.rawValue)\ndegradedReason=\(degraded)\n\n\(mapped)"
     }
 
     func handleHotkey(actionID: String) async {
@@ -305,6 +335,46 @@ actor AppControllerActor {
         await lifecycle.endSession()
         try? await lifecycle.transition(to: .ready)
         await pushUI()
+    }
+
+    private func switchProviderFlow() async {
+        let previous = settings
+        settings.provider = ProviderConfiguration(
+            primary: previous.provider.fallback,
+            fallback: previous.provider.primary,
+            groqAPIKeyRef: previous.provider.groqAPIKeyRef,
+            openAIAPIKeyRef: previous.provider.openAIAPIKeyRef,
+            timeoutSeconds: previous.provider.timeoutSeconds,
+            groqModel: previous.provider.groqModel,
+            openAIModel: previous.provider.openAIModel
+        )
+
+        do {
+            try await configurationManager.saveSettings(settings)
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "provider_switched",
+                    sessionID: nil,
+                    attributes: [
+                        "primary": settings.provider.primary.rawValue,
+                        "fallback": settings.provider.fallback.rawValue
+                    ]
+                )
+            )
+            await runChecksFlow()
+        } catch {
+            settings = previous
+            await lifecycle.setLastErrorCode("settings_save_error")
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "provider_switch_failed",
+                    sessionID: nil,
+                    attributes: ["error": String(describing: error)]
+                )
+            )
+            try? await lifecycle.transition(to: .degraded, degradedReason: .internalError)
+            await pushUI()
+        }
     }
 
     private func retryHotkeyRegistrationFlow() async {

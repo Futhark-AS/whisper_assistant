@@ -98,10 +98,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             switch action {
-            case .preferences:
+            case .preferences, .openProviderSettings:
                 self.showPreferences(configurationManager: configurationManager)
             case .history:
                 self.showHistory(historyStore: historyStore)
+            case .openSettings:
+                Task {
+                    let permissions = await permissionCoordinator.checkAll()
+                    if permissions.microphone != .granted {
+                        await permissionCoordinator.openSystemSettings(.microphone)
+                        return
+                    }
+                    if permissions.accessibility != .granted {
+                        await permissionCoordinator.openSystemSettings(.accessibility)
+                        return
+                    }
+                    if permissions.inputMonitoring != .granted {
+                        await permissionCoordinator.openSystemSettings(.inputMonitoring)
+                        return
+                    }
+                    self.presentInfoAlert(
+                        title: "No Missing Permissions",
+                        message: "Microphone, Accessibility, and Input Monitoring are already granted."
+                    )
+                }
+            case .selectDevice:
+                self.openSoundInputSettings()
+            case .viewLastError:
+                Task {
+                    let description = await controller.lastErrorDescription()
+                    self.presentInfoAlert(title: "Last Error", message: description)
+                }
             case .viewDiagnostics:
                 Task {
                     await diagnostics.emit(
@@ -193,6 +220,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    }
+
+    private func openSoundInputSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.sound?input") else {
+            presentInfoAlert(title: "Unable to Open Settings", message: "Could not construct Sound settings URL.")
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func presentInfoAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.runModal()
     }
 
     private func presentFatalError(message: String) {
