@@ -14,10 +14,26 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
 APP_DIR="$DIST_DIR/WhisperAssistant.app"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
 
 cp ".build/release/WhisperAssistant" "$APP_DIR/Contents/MacOS/WhisperAssistant"
 chmod +x "$APP_DIR/Contents/MacOS/WhisperAssistant"
+
+SPARKLE_SOURCE=""
+if [[ -d ".build/release/Sparkle.framework" ]]; then
+  SPARKLE_SOURCE=".build/release/Sparkle.framework"
+elif [[ -d ".build/arm64-apple-macosx/release/Sparkle.framework" ]]; then
+  SPARKLE_SOURCE=".build/arm64-apple-macosx/release/Sparkle.framework"
+fi
+
+if [[ -n "$SPARKLE_SOURCE" ]]; then
+  cp -R "$SPARKLE_SOURCE" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+fi
+
+# Make sure bundled frameworks are discoverable by @rpath.
+if ! otool -l "$APP_DIR/Contents/MacOS/WhisperAssistant" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_DIR/Contents/MacOS/WhisperAssistant"
+fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -50,6 +66,9 @@ EOF
 
 # Optional signing when identity is available in runner keychain.
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  if [[ -d "$APP_DIR/Contents/Frameworks/Sparkle.framework" ]]; then
+    codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+  fi
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
 fi
