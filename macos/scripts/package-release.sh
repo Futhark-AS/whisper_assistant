@@ -71,6 +71,14 @@ if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   fi
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
+else
+  # Ensure unsigned builds still have a structurally valid bundle signature.
+  # Without this, Gatekeeper can report "is damaged" for linker-signed binaries.
+  if [[ -d "$APP_DIR/Contents/Frameworks/Sparkle.framework" ]]; then
+    codesign --force --sign - "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+  fi
+  codesign --force --sign - "$APP_DIR/Contents/MacOS/WhisperAssistant"
+  codesign --force --sign - "$APP_DIR"
 fi
 
 APP_ZIP="$DIST_DIR/WhisperAssistant.app.zip"
