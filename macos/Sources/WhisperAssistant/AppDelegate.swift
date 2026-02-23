@@ -117,10 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         await permissionCoordinator.openSystemSettings(.inputMonitoring)
                         return
                     }
-                    self.presentInfoAlert(
-                        title: "No Missing Permissions",
-                        message: "Microphone, Accessibility, and Input Monitoring are already granted."
-                    )
+                    await permissionCoordinator.openSystemSettings(.microphone)
                 }
             case .selectDevice:
                 self.openSoundInputSettings()
@@ -137,7 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             case .exportDiagnostics:
                 Task {
-                    _ = try? await diagnostics.exportDiagnosticsBundle()
+                    do {
+                        let archiveURL = try await diagnostics.exportDiagnosticsBundle()
+                        self.revealDiagnosticsArchive(archiveURL)
+                    } catch {
+                        self.presentInfoAlert(
+                            title: "Export Diagnostics Failed",
+                            message: error.localizedDescription
+                        )
+                    }
                 }
             default:
                 Task {
@@ -230,7 +235,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    private func revealDiagnosticsArchive(_ archiveURL: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([archiveURL])
+        presentInfoAlert(
+            title: "Diagnostics Exported",
+            message: archiveURL.path
+        )
+    }
+
     private func presentInfoAlert(title: String, message: String) {
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -239,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func presentFatalError(message: String) {
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Whisper Assistant failed to start"
         alert.informativeText = message

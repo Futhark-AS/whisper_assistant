@@ -161,25 +161,14 @@ actor AppControllerActor {
     func lastErrorDescription() async -> String {
         let snapshot = await lifecycle.snapshot()
         guard let code = snapshot.lastErrorCode else {
+            if let degradedReason = snapshot.degradedReason {
+                let mapped = messageForDegradedReason(degradedReason)
+                return "code=none\nphase=\(snapshot.phase.rawValue)\ndegradedReason=\(degradedReason.rawValue)\n\n\(mapped)"
+            }
             return "No recent error recorded."
         }
 
-        let mapped: String
-        switch code {
-        case "capture_open_failed":
-            mapped = "Audio capture failed to start. Check microphone access and selected input device."
-        case "pipeline_failed":
-            mapped = "Transcription pipeline failed. Retry or switch provider."
-        case "permissions_not_ready":
-            mapped = "Required permissions are missing. Open System Settings and grant access."
-        case "hotkey_registration_failed":
-            mapped = "Global hotkey registration failed. Try different hotkeys or re-run checks."
-        case "provider_connectivity_failed":
-            mapped = "Both transcription providers failed connectivity checks."
-        default:
-            mapped = "An unexpected runtime error occurred."
-        }
-
+        let mapped = messageForErrorCode(code)
         let degraded = snapshot.degradedReason?.rawValue ?? "none"
         return "code=\(code)\nphase=\(snapshot.phase.rawValue)\ndegradedReason=\(degraded)\n\n\(mapped)"
     }
@@ -466,6 +455,38 @@ actor AppControllerActor {
             Task {
                 await self?.handleHotkey(actionID: action)
             }
+        }
+    }
+
+    private func messageForErrorCode(_ code: String) -> String {
+        switch code {
+        case "capture_open_failed":
+            return "Audio capture failed to start. Check microphone access and selected input device."
+        case "pipeline_failed":
+            return "Transcription pipeline failed. Retry or switch provider."
+        case "permissions_not_ready":
+            return "Required permissions are missing. Open System Settings and grant access."
+        case "hotkey_registration_failed":
+            return "Global hotkey registration failed. Try different hotkeys or re-run checks."
+        case "provider_connectivity_failed":
+            return "Both transcription providers failed connectivity checks."
+        default:
+            return "An unexpected runtime error occurred."
+        }
+    }
+
+    private func messageForDegradedReason(_ reason: DegradedReason) -> String {
+        switch reason {
+        case .permissions:
+            return "Permissions are missing for this app instance. Open System Settings and grant Microphone/Accessibility/Input Monitoring."
+        case .noInputDevice:
+            return "No input audio device was detected."
+        case .providerUnavailable:
+            return "No transcription provider is currently reachable."
+        case .hotkeyFailure:
+            return "Hotkey registration failed. Try another shortcut preset or manual mapping."
+        case .internalError:
+            return "The app entered degraded mode due to an internal error."
         }
     }
 }

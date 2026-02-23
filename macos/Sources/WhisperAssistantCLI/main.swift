@@ -2,6 +2,39 @@ import ArgumentParser
 import Foundation
 import WhisperAssistantCore
 
+private struct ProcessRunResult {
+    let status: Int32
+    let stderr: String
+}
+
+private func runProcess(_ executablePath: String, arguments: [String]) throws -> ProcessRunResult {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+
+    let stderrPipe = Pipe()
+    process.standardError = stderrPipe
+
+    try process.run()
+    process.waitUntilExit()
+
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+    return ProcessRunResult(status: process.terminationStatus, stderr: stderr)
+}
+
+private func installedWhisperAssistantAppURL() -> URL? {
+    let fileManager = FileManager.default
+    let candidates: [URL] = [
+        URL(fileURLWithPath: "/Applications/WhisperAssistant.app"),
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .appendingPathComponent("WhisperAssistant.app", isDirectory: true)
+    ]
+
+    return candidates.first { fileManager.fileExists(atPath: $0.path) }
+}
+
 private func localWhisperAssistantBinaryURL() -> URL? {
     let currentExecutable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
     let sibling = currentExecutable.deletingLastPathComponent().appendingPathComponent("WhisperAssistant")
@@ -30,6 +63,14 @@ struct Start: AsyncParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Launch Whisper Assistant app")
 
     mutating func run() async throws {
+        if let appURL = installedWhisperAssistantAppURL() {
+            let result = try runProcess("/usr/bin/open", arguments: [appURL.path])
+            if result.status == 0 {
+                print("start requested (\(appURL.path))")
+                return
+            }
+        }
+
         if let localBinary = localWhisperAssistantBinaryURL() {
             let localProcess = Process()
             localProcess.executableURL = localBinary
@@ -38,17 +79,17 @@ struct Start: AsyncParsableCommand {
             return
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "WhisperAssistant"]
-        try process.run()
-        process.waitUntilExit()
-        if process.terminationStatus == 0 {
+        let result = try runProcess("/usr/bin/open", arguments: ["-a", "WhisperAssistant"])
+        if result.status == 0 {
             print("start requested")
             return
         }
 
-        throw ValidationError("open failed with status \(process.terminationStatus)")
+        let errorOutput = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !errorOutput.isEmpty {
+            throw ValidationError(errorOutput)
+        }
+        throw ValidationError("open failed with status \(result.status)")
     }
 }
 
