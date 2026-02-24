@@ -94,6 +94,7 @@ APP_ZIP="$DIST_DIR/Quedo.app.zip"
 DMG_PATH="$DIST_DIR/Quedo.dmg"
 CLI_ZIP="$DIST_DIR/quedo-cli-macos.zip"
 ENTITLEMENTS_PATH="$DIST_DIR/Quedo.entitlements"
+DMG_STAGING_DIR="$DIST_DIR/dmg-root"
 
 cat > "$ENTITLEMENTS_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -126,7 +127,12 @@ else
 fi
 
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$APP_ZIP"
-hdiutil create -volname "Quedo" -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH" >/dev/null
+rm -rf "$DMG_STAGING_DIR"
+mkdir -p "$DMG_STAGING_DIR"
+cp -R "$APP_DIR" "$DMG_STAGING_DIR/Quedo.app"
+ln -s /Applications "$DMG_STAGING_DIR/Applications"
+hdiutil create -volname "Quedo" -srcfolder "$DMG_STAGING_DIR" -ov -format UDZO "$DMG_PATH" >/dev/null
+rm -rf "$DMG_STAGING_DIR"
 ditto -c -k --sequesterRsrc ".build/release/quedo-cli" "$CLI_ZIP"
 
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]] && [[ -n "${APPLE_ID:-}" ]] && [[ -n "${APPLE_TEAM_ID:-}" ]] && [[ -n "${APPLE_APP_PASSWORD:-}" ]]; then
