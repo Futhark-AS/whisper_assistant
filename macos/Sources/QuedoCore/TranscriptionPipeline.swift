@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 /// Errors returned by the transcription pipeline.
@@ -34,7 +35,7 @@ public actor TranscriptionPipeline {
     private var primaryProbeTask: Task<Void, Never>?
 
     private let requestTimeoutSeconds: Int
-    private let chunkByteLimit = 6_000_000
+    private let chunkDurationSeconds: Double = 5 * 60
 
     /// Creates a transcription pipeline with registered providers.
     public init(providers: [any TranscriptionProvider], requestTimeoutSeconds: Int = 12) {
@@ -195,29 +196,77 @@ public actor TranscriptionPipeline {
     }
 
     private func chunkAudioIfNeeded(_ fileURL: URL) throws -> [URL] {
-        let data = try Data(contentsOf: fileURL)
-        if data.count <= chunkByteLimit {
+        let sourceFile: AVAudioFile
+        do {
+            sourceFile = try AVAudioFile(forReading: fileURL)
+        } catch {
+            throw TranscriptionPipelineError.chunkingFailed
+        }
+
+        let sampleRate = sourceFile.processingFormat.sampleRate
+        guard sampleRate > 0 else {
             return [fileURL]
+        }
+
+        let framesPerChunk = AVAudioFramePosition(sampleRate * chunkDurationSeconds)
+        if sourceFile.length <= framesPerChunk {
+            return [fileURL]
+        }
+
+        guard let outputFormat = AVAudioFormat(settings: sourceFile.fileFormat.settings) else {
+            throw TranscriptionPipelineError.chunkingFailed
         }
 
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("QuedoChunks", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
 
+        let readBlockFrames: AVAudioFrameCount = 8_192
+        var remainingFrames = sourceFile.length
         var files: [URL] = []
-        var offset = 0
         var index = 0
 
-        while offset < data.count {
-            let end = min(offset + chunkByteLimit, data.count)
-            let chunk = data.subdata(in: offset..<end)
-            let path = tempRoot.appendingPathComponent("chunk-\(UUID().uuidString)-\(index).caf")
+        while remainingFrames > 0 {
+            let chunkFrames = min(framesPerChunk, remainingFrames)
+            let path = tempRoot.appendingPathComponent("chunk-\(UUID().uuidString)-\(index).wav")
+
+            let chunkFile: AVAudioFile
             do {
-                try chunk.write(to: path, options: .atomic)
+                chunkFile = try AVAudioFile(forWriting: path, settings: outputFormat.settings)
             } catch {
                 throw TranscriptionPipelineError.chunkingFailed
             }
+
+            var chunkFramesRemaining = chunkFrames
+            while chunkFramesRemaining > 0 {
+                let framesToRead = AVAudioFrameCount(min(AVAudioFramePosition(readBlockFrames), chunkFramesRemaining))
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: framesToRead) else {
+                    throw TranscriptionPipelineError.chunkingFailed
+                }
+
+                do {
+                    try sourceFile.read(into: buffer, frameCount: framesToRead)
+                } catch {
+                    throw TranscriptionPipelineError.chunkingFailed
+                }
+
+                let readFrames = AVAudioFramePosition(buffer.frameLength)
+                if readFrames == 0 {
+                    chunkFramesRemaining = 0
+                    remainingFrames = 0
+                    break
+                }
+
+                do {
+                    try chunkFile.write(from: buffer)
+                } catch {
+                    throw TranscriptionPipelineError.chunkingFailed
+                }
+
+                chunkFramesRemaining -= readFrames
+                remainingFrames -= readFrames
+            }
+
             files.append(path)
-            offset = end
             index += 1
         }
 

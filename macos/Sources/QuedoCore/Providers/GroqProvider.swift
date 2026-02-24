@@ -37,7 +37,12 @@ public struct GroqProvider: TranscriptionProvider {
         }
 
         let audioData = try Data(contentsOf: request.audioFileURL)
-        multipart.addFile(name: "file", filename: request.audioFileURL.lastPathComponent, mimeType: "audio/x-caf", data: audioData)
+        multipart.addFile(
+            name: "file",
+            filename: request.audioFileURL.lastPathComponent,
+            mimeType: mimeType(for: request.audioFileURL),
+            data: audioData
+        )
         multipart.finalize()
 
         guard let endpoint = URL(string: "https://api.groq.com/openai/v1/audio/transcriptions") else {
@@ -106,6 +111,23 @@ public struct GroqProvider: TranscriptionProvider {
             return (200..<300).contains(http.statusCode)
         } catch {
             return false
+        }
+    }
+
+    private func mimeType(for fileURL: URL) -> String {
+        switch fileURL.pathExtension.lowercased() {
+        case "wav":
+            return "audio/wav"
+        case "flac":
+            return "audio/flac"
+        case "caf":
+            return "audio/x-caf"
+        case "mp3":
+            return "audio/mpeg"
+        case "m4a":
+            return "audio/mp4"
+        default:
+            return "application/octet-stream"
         }
     }
 }

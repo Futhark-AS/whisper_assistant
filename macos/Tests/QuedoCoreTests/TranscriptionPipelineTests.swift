@@ -1,10 +1,10 @@
+import AVFoundation
 import XCTest
 @testable import QuedoCore
 
 final class TranscriptionPipelineTests: XCTestCase {
     func testFallbackAfterPrimaryFailure() async throws {
-        let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipeline-test-\(UUID().uuidString).caf")
-        try Data("audio".utf8).write(to: file)
+        let file = try makeTestWAV(name: "pipeline-test-\(UUID().uuidString)", durationSeconds: 1.0)
 
         let primary = MockProvider(kind: .groq, mode: .alwaysFail)
         let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("fallback transcript"))
@@ -17,8 +17,7 @@ final class TranscriptionPipelineTests: XCTestCase {
     }
 
     func testCleanupRemovesKnownHallucinations() async throws {
-        let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipeline-test-cleanup-\(UUID().uuidString).caf")
-        try Data("audio".utf8).write(to: file)
+        let file = try makeTestWAV(name: "pipeline-test-cleanup-\(UUID().uuidString)", durationSeconds: 1.0)
 
         let provider = MockProvider(kind: .groq, mode: .alwaysSucceed("Thanks for watching. hello world"))
         let backup = MockProvider(kind: .openAI, mode: .alwaysSucceed("unused"))
@@ -33,8 +32,7 @@ final class TranscriptionPipelineTests: XCTestCase {
     }
 
     func testFallbackWhenPrimaryHangsPastTimeoutBudget() async throws {
-        let file = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pipeline-test-hang-\(UUID().uuidString).caf")
-        try Data("audio".utf8).write(to: file)
+        let file = try makeTestWAV(name: "pipeline-test-hang-\(UUID().uuidString)", durationSeconds: 1.0)
 
         let primary = MockProvider(kind: .groq, mode: .hang)
         let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("fallback transcript"))
@@ -52,6 +50,59 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertTrue(result.fallbackUsed)
         XCTAssertEqual(result.text, "fallback transcript")
         XCTAssertLessThan(elapsed, 8.0)
+    }
+
+    func testSplitsAudioLongerThanFiveMinutes() async throws {
+        let file = try makeTestWAV(
+            name: "pipeline-test-split-\(UUID().uuidString)",
+            durationSeconds: 301.0
+        )
+
+        let counter = CallCounter()
+        let primary = CountingProvider(kind: .groq, counter: counter)
+        let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("unused"))
+        let pipeline = TranscriptionPipeline(providers: [primary, fallback], requestTimeoutSeconds: 2)
+
+        var settings = AppSettings.default
+        settings.provider.primary = .groq
+        settings.provider.fallback = .openAI
+
+        let result = try await pipeline.transcribe(audioFileURL: file, settings: settings)
+        let calls = await counter.value()
+
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(result.text, "chunk-1 chunk-2")
+        XCTAssertEqual(result.providerUsed, .groq)
+        XCTAssertFalse(result.fallbackUsed)
+    }
+}
+
+private actor CallCounter {
+    private var count = 0
+
+    func increment() -> Int {
+        count += 1
+        return count
+    }
+
+    func value() -> Int {
+        count
+    }
+}
+
+private struct CountingProvider: TranscriptionProvider {
+    let kind: ProviderKind
+    let counter: CallCounter
+
+    func transcribe(request: TranscriptionRequest) async throws -> TranscriptionResponse {
+        _ = request
+        let callNumber = await counter.increment()
+        return TranscriptionResponse(text: "chunk-\(callNumber)", provider: kind, isPartial: false)
+    }
+
+    func checkHealth(timeoutSeconds: Int) async -> Bool {
+        _ = timeoutSeconds
+        return true
     }
 }
 
@@ -89,4 +140,33 @@ private struct MockProvider: TranscriptionProvider {
             return false
         }
     }
+}
+
+private enum TestAudioError: Error {
+    case bufferAllocationFailed
+}
+
+private func makeTestWAV(name: String, durationSeconds: Double, sampleRate: Double = 16_000) throws -> URL {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name).appendingPathExtension("wav")
+    if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+    }
+
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+        throw TestAudioError.bufferAllocationFailed
+    }
+
+    let file = try AVAudioFile(forWriting: url, settings: format.settings)
+    let frameCount = AVAudioFrameCount(max(1, Int(durationSeconds * sampleRate)))
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+        throw TestAudioError.bufferAllocationFailed
+    }
+
+    buffer.frameLength = frameCount
+    if let channel = buffer.floatChannelData?.pointee {
+        channel.update(repeating: 0, count: Int(frameCount))
+    }
+
+    try file.write(from: buffer)
+    return url
 }
