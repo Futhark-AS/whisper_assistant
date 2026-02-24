@@ -67,7 +67,9 @@ EOF
 # Optional signing when identity is available in runner keychain.
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   if [[ -d "$APP_DIR/Contents/Frameworks/Sparkle.framework" ]]; then
-    codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+    # Sparkle ships nested helper executables (Updater/Autoupdate/XPC services) that
+    # must be re-signed with our Developer ID identity for notarization to pass.
+    codesign --force --timestamp --options runtime --deep --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
   fi
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
@@ -90,11 +92,27 @@ hdiutil create -volname "WhisperAssistant" -srcfolder "$APP_DIR" -ov -format UDZ
 ditto -c -k --sequesterRsrc ".build/release/wa" "$CLI_ZIP"
 
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]] && [[ -n "${APPLE_ID:-}" ]] && [[ -n "${APPLE_TEAM_ID:-}" ]] && [[ -n "${APPLE_APP_PASSWORD:-}" ]]; then
+  NOTARY_RESULT_JSON="$DIST_DIR/notary-result.json"
   xcrun notarytool submit "$DMG_PATH" \
     --apple-id "${APPLE_ID}" \
     --team-id "${APPLE_TEAM_ID}" \
     --password "${APPLE_APP_PASSWORD}" \
-    --wait
+    --wait \
+    --output-format json > "$NOTARY_RESULT_JSON"
+
+  NOTARY_STATUS="$(plutil -extract status raw -o - "$NOTARY_RESULT_JSON" 2>/dev/null || true)"
+  if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
+    NOTARY_ID="$(plutil -extract id raw -o - "$NOTARY_RESULT_JSON" 2>/dev/null || true)"
+    if [[ -n "$NOTARY_ID" ]]; then
+      xcrun notarytool log "$NOTARY_ID" \
+        --apple-id "${APPLE_ID}" \
+        --team-id "${APPLE_TEAM_ID}" \
+        --password "${APPLE_APP_PASSWORD}" || true
+    fi
+    echo "Notarization failed with status: ${NOTARY_STATUS:-unknown}" >&2
+    exit 1
+  fi
+
   xcrun stapler staple "$DMG_PATH"
 fi
 
