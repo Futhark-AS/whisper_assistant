@@ -35,6 +35,17 @@ public struct PermissionSnapshot: Sendable {
     public var isFullyReady: Bool {
         microphone == .granted && accessibility == .granted
     }
+
+    /// Returns true when current permissions satisfy runtime requirements for active output settings.
+    public func satisfiesRuntimeRequirements(outputMode: OutputMode, buildProfile: BuildProfile) -> Bool {
+        guard microphone == .granted else {
+            return false
+        }
+        guard outputMode.requiresAccessibilityPermission(buildProfile: buildProfile) else {
+            return true
+        }
+        return accessibility == .granted
+    }
 }
 
 /// Available System Settings destinations for remediation.

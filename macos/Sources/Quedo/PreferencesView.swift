@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import SwiftUI
 import QuedoCore
@@ -28,126 +29,151 @@ struct PreferencesView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Behavior") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker("Interaction", selection: $model.recordingInteraction) {
-                            ForEach(RecordingInteractionMode.allCases, id: \.self) { mode in
-                                Text(mode.rawValue.capitalized).tag(mode)
-                            }
+        VStack(spacing: 12) {
+            Form {
+                Section("Behavior") {
+                    Picker("Interaction", selection: $model.recordingInteraction) {
+                        ForEach(RecordingInteractionMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue.capitalized).tag(mode)
                         }
-
-                        Toggle("Launch at login", isOn: $model.launchAtLoginEnabled)
-
-                        Picker("Output", selection: $model.outputMode) {
-                            ForEach(OutputMode.allCases, id: \.self) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
-                        }
-
-                        Text("Choose `clipboard` if you never want auto-paste.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextField("Language (`auto`, `en`, `no`...)", text: $model.language)
-                        TextField("Vocabulary hints (comma separated)", text: $model.vocabularyText)
                     }
+                    .pickerStyle(.menu)
+
+                    Toggle("Launch at login", isOn: $model.launchAtLoginEnabled)
+
+                    Picker("Output", selection: $model.outputMode) {
+                        ForEach(OutputMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text("Choose `clipboard` if you never want auto-paste.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("Language (`auto`, `en`, `no`...)", text: $model.language)
+                    TextField("Vocabulary hints (comma separated)", text: $model.vocabularyText)
                 }
 
-                GroupBox("Providers") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker("Primary Provider", selection: $model.primaryProvider) {
-                            ForEach(ProviderKind.allCases, id: \.self) { provider in
-                                Text(provider.rawValue).tag(provider)
-                            }
+                Section("Providers") {
+                    Picker("Primary Provider", selection: $model.primaryProvider) {
+                        ForEach(ProviderKind.allCases, id: \.self) { provider in
+                            Text(provider.rawValue).tag(provider)
                         }
-
-                        Picker("Fallback Provider", selection: $model.fallbackProvider) {
-                            ForEach(ProviderKind.allCases, id: \.self) { provider in
-                                Text(provider.rawValue).tag(provider)
-                            }
-                        }
-
-                        Stepper(
-                            "Timeout: \(model.timeoutSeconds)s",
-                            value: $model.timeoutSeconds,
-                            in: 1...120
-                        )
-
-                        TextField("Groq Model", text: $model.groqModel)
-                        TextField("OpenAI Model", text: $model.openAIModel)
                     }
+                    .pickerStyle(.menu)
+
+                    Picker("Fallback Provider", selection: $model.fallbackProvider) {
+                        ForEach(ProviderKind.allCases, id: \.self) { provider in
+                            Text(provider.rawValue).tag(provider)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Stepper(
+                        "Timeout: \(model.timeoutSeconds)s",
+                        value: $model.timeoutSeconds,
+                        in: 1...120
+                    )
+
+                    TextField("Groq Model", text: $model.groqModel)
+                    TextField("OpenAI Model", text: $model.openAIModel)
                 }
 
-                GroupBox("API Keys") {
-                    VStack(alignment: .leading, spacing: 10) {
+                Section("API Keys") {
+                    HStack(spacing: 8) {
                         SecureField("Groq API key (leave blank to keep current)", text: $model.groqAPIKeyInput)
-                        Text(model.hasGroqKey ? "Groq key: stored" : "Groq key: missing")
-                            .font(.caption)
-                            .foregroundColor(model.hasGroqKey ? .secondary : .orange)
-
-                        SecureField("OpenAI API key (optional)", text: $model.openAIAPIKeyInput)
-                        Text(model.hasOpenAIKey ? "OpenAI key: stored" : "OpenAI key: missing")
-                            .font(.caption)
-                            .foregroundColor(model.hasOpenAIKey ? .secondary : .orange)
+                        Button("Paste") {
+                            model.pasteAPIKey(.groq)
+                        }
                     }
+                    Text(model.hasGroqKey ? "Groq key: stored" : "Groq key: missing")
+                        .font(.caption)
+                        .foregroundColor(model.hasGroqKey ? .secondary : .orange)
+
+                    HStack(spacing: 8) {
+                        SecureField("OpenAI API key (optional)", text: $model.openAIAPIKeyInput)
+                        Button("Paste") {
+                            model.pasteAPIKey(.openAI)
+                        }
+                    }
+                    Text(model.hasOpenAIKey ? "OpenAI key: stored" : "OpenAI key: missing")
+                        .font(.caption)
+                        .foregroundColor(model.hasOpenAIKey ? .secondary : .orange)
                 }
 
-                GroupBox("Hotkeys") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Toggle("Enable global hotkeys", isOn: $model.hotkeysEnabled)
+                Section("Hotkeys") {
+                    Toggle("Enable global hotkeys", isOn: $model.hotkeysEnabled)
 
-                        if model.hotkeysEnabled {
-                            Picker("Shortcut Mode", selection: $model.hotkeyPreset) {
-                                ForEach(model.availableHotkeyPresets, id: \.self) { preset in
-                                    Text(preset.rawValue).tag(preset)
+                    if model.hotkeysEnabled {
+                        Picker("Shortcut Mode", selection: $model.hotkeyPreset) {
+                            ForEach(model.availableHotkeyPresets, id: \.self) { preset in
+                                Text(preset.rawValue).tag(preset)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        if model.hotkeyPreset == .manual {
+                            HStack(spacing: 8) {
+                                TextField("Toggle recording (`fn+ctrl`, `cmd+shift+r`...)", text: $model.manualToggleHotkeyText)
+                                Button("Paste") {
+                                    model.pasteManualHotkey(.toggle)
+                                }
+                            }
+                            HStack(spacing: 8) {
+                                TextField("Retry transcription", text: $model.manualRetryHotkeyText)
+                                Button("Paste") {
+                                    model.pasteManualHotkey(.retry)
+                                }
+                            }
+                            HStack(spacing: 8) {
+                                TextField("Cancel recording", text: $model.manualCancelHotkeyText)
+                                Button("Paste") {
+                                    model.pasteManualHotkey(.cancel)
                                 }
                             }
 
-                            if model.hotkeyPreset == .manual {
-                                TextField("Toggle recording (`fn+ctrl`, `cmd+shift+r`...)", text: $model.manualToggleHotkeyText)
-                                TextField("Retry transcription", text: $model.manualRetryHotkeyText)
-                                TextField("Cancel recording", text: $model.manualCancelHotkeyText)
-
-                                Text("Manual format: modifiers + key (example `cmd+shift+r`) or modifiers-only (`fn+ctrl`). Leave field empty to unbind that action.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Text(model.hotkeySummary)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Hotkeys disabled. Use menu bar actions only.")
+                            Text("Manual format: modifiers + key (example `cmd+shift+r`) or modifiers-only (`fn+ctrl`). Leave field empty to unbind that action.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                    }
-                }
 
-                HStack(spacing: 10) {
-                    Button("Save") {
-                        Task { await model.save() }
-                    }
-                    .keyboardShortcut(.defaultAction)
-
-                    Button("Restore Defaults") {
-                        model.applyDefaults()
-                    }
-
-                    Spacer()
-
-                    if let status = model.statusMessage {
-                        Text(status)
+                        Text(model.hotkeySummary)
                             .font(.caption)
-                            .foregroundStyle(model.statusIsError ? .red : .secondary)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Hotkeys disabled. Use menu bar actions only.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(16)
+            .formStyle(.grouped)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button("Save") {
+                    Task { await model.save() }
+                }
+                .keyboardShortcut(.defaultAction)
+
+                Button("Restore Defaults") {
+                    model.applyDefaults()
+                }
+
+                Spacer()
+
+                if let status = model.statusMessage {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(model.statusIsError ? .red : .secondary)
+                }
+            }
         }
-        .frame(width: 620, height: 680)
+        .padding(16)
+        .frame(width: 680, height: 760)
         .task {
             await model.load()
         }
@@ -208,6 +234,40 @@ final class PreferencesViewModel: ObservableObject {
             return error.issues.map { "\($0.field): \($0.message)" }.joined(separator: " | ")
         } catch {
             return "Invalid hotkey configuration."
+        }
+    }
+
+    enum ManualHotkeyField {
+        case toggle
+        case retry
+        case cancel
+    }
+
+    func pasteAPIKey(_ provider: ProviderKind) {
+        guard let value = clipboardString(), !value.isEmpty else {
+            return
+        }
+
+        switch provider {
+        case .groq:
+            groqAPIKeyInput = value
+        case .openAI:
+            openAIAPIKeyInput = value
+        }
+    }
+
+    func pasteManualHotkey(_ field: ManualHotkeyField) {
+        guard let value = clipboardString(), !value.isEmpty else {
+            return
+        }
+
+        switch field {
+        case .toggle:
+            manualToggleHotkeyText = value
+        case .retry:
+            manualRetryHotkeyText = value
+        case .cancel:
+            manualCancelHotkeyText = value
         }
     }
 
@@ -406,5 +466,10 @@ final class PreferencesViewModel: ObservableObject {
         default: actionName = binding.actionID
         }
         return "\(actionName): \(HotkeyCodec.displayString(binding))"
+    }
+
+    private func clipboardString() -> String? {
+        NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

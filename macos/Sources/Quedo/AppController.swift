@@ -54,7 +54,7 @@ actor AppControllerActor {
             await audioEngine.prepareEngine()
             let permissionSnapshot = await permissionCoordinator.checkAll()
 
-            if !permissionSnapshot.isFullyReady {
+            if !permissionsSatisfyRuntimeRequirements(permissionSnapshot) {
                 try await lifecycle.transition(to: .degraded, degradedReason: .permissions)
                 await diagnostics.emit(
                     DiagnosticEvent(name: "degraded_enter_total", sessionID: nil, attributes: ["reason": "permissions"])
@@ -107,7 +107,10 @@ actor AppControllerActor {
             await diagnostics.emit(
                 DiagnosticEvent(name: "settings_reloaded", sessionID: nil, attributes: ["source": "preferences"])
             )
-            await pushUI()
+            let recovered = await recoverFromPermissionDegradedStateIfPossible()
+            if !recovered {
+                await pushUI()
+            }
         } catch {
             await diagnostics.emit(
                 DiagnosticEvent(
@@ -137,7 +140,14 @@ actor AppControllerActor {
             settings.outputMode = .clipboard
             do {
                 try await configurationManager.saveSettings(settings)
-                try await lifecycle.transition(to: .ready)
+                let permissions = await permissionCoordinator.checkAll()
+                if permissionsSatisfyRuntimeRequirements(permissions) {
+                    await lifecycle.setLastErrorCode(nil)
+                    try await lifecycle.transition(to: .ready)
+                } else {
+                    await lifecycle.setLastErrorCode("permissions_not_ready")
+                    try await lifecycle.transition(to: .degraded, degradedReason: .permissions)
+                }
             } catch {
                 await diagnostics.emit(
                     DiagnosticEvent(name: "settings_save_error", sessionID: nil, attributes: ["error": String(describing: error)])
@@ -175,13 +185,18 @@ actor AppControllerActor {
 
     func handleHotkey(actionID: String) async {
         await diagnostics.recordMetric(MetricPoint(name: "hotkey_trigger_total", value: 1, tags: ["action": actionID]))
+        let snapshot = await lifecycle.snapshot()
 
         switch actionID {
         case "toggle":
-            if isRecording {
+            if snapshot.phase == .arming {
+                await cancelFlow()
+            } else if isRecording {
                 await stopRecordingFlow()
-            } else {
+            } else if snapshot.currentSessionID == nil, snapshot.phase == .ready {
                 await startRecordingFlow()
+            } else {
+                return
             }
         case "retry":
             await retryFlow()
@@ -199,8 +214,16 @@ actor AppControllerActor {
         await pushUI()
     }
 
+    func refreshPermissionStateAfterActivation() async {
+        _ = await recoverFromPermissionDegradedStateIfPossible()
+    }
+
     private func startRecordingFlow() async {
         if isRecording {
+            return
+        }
+        let snapshot = await lifecycle.snapshot()
+        guard snapshot.currentSessionID == nil else {
             return
         }
 
@@ -211,11 +234,22 @@ actor AppControllerActor {
             await pushUI()
 
             try await audioEngine.startRecording(sessionID: sessionID)
+            let armed = await audioEngine.waitForFirstFrame(timeout: .seconds(2))
+            guard armed else {
+                let postArmSnapshot = await lifecycle.snapshot()
+                if postArmSnapshot.currentSessionID == nil || postArmSnapshot.phase == .ready {
+                    return
+                }
+                throw AudioCaptureError.streamOpenFailed
+            }
+
             try await lifecycle.transition(to: .recording)
             isRecording = true
             await diagnostics.recordMetric(MetricPoint(name: "session_start_total", value: 1, tags: [:]))
             await pushUI()
         } catch let error as AudioCaptureError {
+            await audioEngine.cancelRecording()
+            isRecording = false
             let degraded: DegradedReason = (error == .noInputDevice) ? .noInputDevice : .internalError
             try? await lifecycle.transition(to: .degraded, degradedReason: degraded)
             await lifecycle.setLastErrorCode("capture_open_failed")
@@ -225,6 +259,8 @@ actor AppControllerActor {
             await pushUI()
             await lifecycle.endSession()
         } catch {
+            await audioEngine.cancelRecording()
+            isRecording = false
             try? await lifecycle.transition(to: .degraded, degradedReason: .internalError)
             await pushUI()
             await lifecycle.endSession()
@@ -418,7 +454,7 @@ actor AppControllerActor {
             )
         )
 
-        if !permissions.isFullyReady {
+        if !permissionsSatisfyRuntimeRequirements(permissions) {
             await lifecycle.setLastErrorCode("permissions_not_ready")
             try? await lifecycle.transition(to: .degraded, degradedReason: .permissions)
             await pushUI()
@@ -456,6 +492,39 @@ actor AppControllerActor {
                 await self?.handleHotkey(actionID: action)
             }
         }
+    }
+
+    private func permissionsSatisfyRuntimeRequirements(_ permissions: PermissionSnapshot) -> Bool {
+        permissions.satisfiesRuntimeRequirements(outputMode: settings.outputMode, buildProfile: settings.buildProfile)
+    }
+
+    @discardableResult
+    private func recoverFromPermissionDegradedStateIfPossible() async -> Bool {
+        let snapshot = await lifecycle.snapshot()
+        guard snapshot.phase == .degraded, snapshot.degradedReason == .permissions else {
+            return false
+        }
+
+        let permissions = await permissionCoordinator.checkAll()
+        guard permissionsSatisfyRuntimeRequirements(permissions) else {
+            return false
+        }
+
+        await lifecycle.setLastErrorCode(nil)
+        try? await lifecycle.transition(to: .ready)
+        await diagnostics.emit(
+            DiagnosticEvent(
+                name: "permissions_recovered",
+                sessionID: nil,
+                attributes: [
+                    "microphone": permissions.microphone.rawValue,
+                    "accessibility": permissions.accessibility.rawValue,
+                    "inputMonitoring": permissions.inputMonitoring.rawValue
+                ]
+            )
+        )
+        await pushUI()
+        return true
     }
 
     private func messageForErrorCode(_ code: String) -> String {

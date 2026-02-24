@@ -20,6 +20,18 @@ public enum OutputMode: String, Codable, Sendable, CaseIterable {
     case clipboardAndPaste
 }
 
+public extension OutputMode {
+    /// Returns true when this output mode requires Accessibility permission.
+    func requiresAccessibilityPermission(buildProfile: BuildProfile) -> Bool {
+        switch self {
+        case .none, .clipboard:
+            return false
+        case .pasteAtCursor, .clipboardAndPaste:
+            return buildProfile == .direct
+        }
+    }
+}
+
 /// Available provider families for transcription.
 public enum ProviderKind: String, Codable, Sendable, CaseIterable {
     /// Groq hosted model endpoints.

@@ -133,10 +133,20 @@ struct Logs: AsyncParsableCommand {
     @Flag(help: "Show debug.log when available")
     var debug = false
 
+    @Flag(help: "Show hotkeys.log with key registration/dispatch trace")
+    var hotkeys = false
+
     mutating func run() async throws {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quedo/logs")
-        let file = debug ? base.appendingPathComponent("debug.log") : base.appendingPathComponent("app.log")
+        let file: URL
+        if hotkeys {
+            file = base.appendingPathComponent("hotkeys.log")
+        } else if debug {
+            file = base.appendingPathComponent("debug.log")
+        } else {
+            file = base.appendingPathComponent("app.log")
+        }
 
         if !FileManager.default.fileExists(atPath: file.path) {
             print("log file not found: \(file.path)")

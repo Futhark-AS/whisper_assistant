@@ -170,3 +170,4 @@ cython_debug/
 *.wav
 
 quedo.pid
+macos/.build/

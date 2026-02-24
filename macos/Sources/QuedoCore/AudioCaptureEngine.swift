@@ -93,6 +93,30 @@ public actor AudioCaptureEngine {
         throw AudioCaptureError.streamOpenFailed
     }
 
+    /// Waits until first audio frame is received for active session.
+    public func waitForFirstFrame(timeout: Duration = .seconds(2)) async -> Bool {
+        if lastFrameAt != nil {
+            return true
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while clock.now < deadline {
+            guard sessionID != nil else {
+                return false
+            }
+            if pendingError != nil {
+                return false
+            }
+            if lastFrameAt != nil {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+
+        return lastFrameAt != nil
+    }
+
     /// Stops recording and finalizes the audio artifact.
     public func stopRecording() async throws -> AudioCaptureResult {
         guard let activeSessionID = sessionID, let startedAt else {

@@ -9,6 +9,8 @@ import QuedoCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private var appController: AppControllerActor?
+    private var didBecomeActiveObserver: NSObjectProtocol?
+    private var permissionRecoveryTask: Task<Void, Never>?
 
     private var preferencesWindowController: NSWindowController?
     private var historyWindowController: NSWindowController?
@@ -31,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         _ = notification
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+            self.didBecomeActiveObserver = nil
+        }
+        permissionRecoveryTask?.cancel()
+        permissionRecoveryTask = nil
         Task {
             await appController?.shutdown()
         }
@@ -95,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.menuBarController?.update(snapshot: snapshot, contract: contract)
         }
         appController = controller
+        installActivationObserver(controller: controller)
 
         await requestInitialMicrophonePermissionIfNeeded(permissionCoordinator: permissionCoordinator)
 
@@ -111,24 +120,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .openSettings:
                 Task {
                     let permissions = await permissionCoordinator.checkAll()
+                    let pane: SettingsPane
                     if permissions.microphone != .granted {
                         if permissions.microphone == .notDetermined {
                             _ = await permissionCoordinator.requestMicrophonePermission()
                         }
-                        await permissionCoordinator.openSystemSettings(.microphone)
-                        return
-                    }
-                    if permissions.accessibility != .granted {
+                        pane = .microphone
+                    } else if permissions.accessibility != .granted {
                         await permissionCoordinator.requestAccessibilityPermissionPrompt()
-                        await permissionCoordinator.openSystemSettings(.accessibility)
-                        return
-                    }
-                    if permissions.inputMonitoring != .granted {
+                        pane = .accessibility
+                    } else if permissions.inputMonitoring != .granted {
                         await permissionCoordinator.requestInputMonitoringPrompt()
-                        await permissionCoordinator.openSystemSettings(.inputMonitoring)
-                        return
+                        pane = .inputMonitoring
+                    } else {
+                        pane = .microphone
                     }
-                    await permissionCoordinator.openSystemSettings(.microphone)
+                    await permissionCoordinator.openSystemSettings(pane)
+                    self.startPermissionRecoveryWatch(controller: controller)
                 }
             case .selectDevice:
                 self.openSoundInputSettings()
@@ -167,6 +175,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerForLoginAtStartupIfEnabled(settings: bootSettings)
 
         await controller.boot()
+    }
+
+    private func installActivationObserver(controller: AppControllerActor) {
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        }
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task {
+                await controller.refreshPermissionStateAfterActivation()
+            }
+        }
+    }
+
+    private func startPermissionRecoveryWatch(controller: AppControllerActor) {
+        permissionRecoveryTask?.cancel()
+        permissionRecoveryTask = Task { [weak self] in
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else {
+                    return
+                }
+                await controller.refreshPermissionStateAfterActivation()
+            }
+            await MainActor.run {
+                self?.permissionRecoveryTask = nil
+            }
+        }
     }
 
     private func validateInstallLocation() -> Bool {
@@ -210,7 +249,7 @@ Move the app to /Applications and reopen it. Running translocated can break perm
         let window = NSWindow(contentViewController: controller)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        window.setContentSize(NSSize(width: 620, height: 680))
+        window.setContentSize(NSSize(width: 680, height: 760))
 
         let windowController = NSWindowController(window: window)
         windowController.showWindow(nil)

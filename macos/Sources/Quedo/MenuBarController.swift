@@ -8,6 +8,7 @@ final class MenuBarController: NSObject {
     private var actionHandler: ((AppAction) -> Void)?
     private var lastSnapshot: AppLifecycleSnapshot?
     private var lastContract: UIStateContract?
+    private var completionResetWorkItem: DispatchWorkItem?
 
     init(statusItem: NSStatusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)) {
         self.statusItem = statusItem
@@ -20,10 +21,17 @@ final class MenuBarController: NSObject {
     }
 
     func update(snapshot: AppLifecycleSnapshot, contract: UIStateContract) {
+        let previousPhase = lastSnapshot?.phase
         lastSnapshot = snapshot
         lastContract = contract
 
-        configureStatusItemAppearance(iconName: contract.icon, phase: snapshot.phase)
+        if previousPhase == .outputting && snapshot.phase == .ready {
+            showCompletionIndicator()
+        } else {
+            completionResetWorkItem?.cancel()
+            completionResetWorkItem = nil
+            configureStatusItemAppearance(iconName: contract.icon, phase: snapshot.phase)
+        }
 
         let menu = NSMenu()
 
@@ -50,6 +58,32 @@ final class MenuBarController: NSObject {
         menu.addItem(makeActionItem(for: .quit))
 
         statusItem.menu = menu
+    }
+
+    private func showCompletionIndicator() {
+        completionResetWorkItem?.cancel()
+        completionResetWorkItem = nil
+
+        if let image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Transcription complete") {
+            image.isTemplate = true
+            statusItem.button?.image = image
+            statusItem.button?.title = ""
+        }
+        NSSound(named: NSSound.Name("Hero"))?.play()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard
+                let self,
+                let snapshot = self.lastSnapshot,
+                snapshot.phase == .ready,
+                let contract = self.lastContract
+            else {
+                return
+            }
+            self.configureStatusItemAppearance(iconName: contract.icon, phase: snapshot.phase)
+        }
+        completionResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: workItem)
     }
 
     private func configureStatusItemAppearance(iconName: String, phase: AppPhase) {

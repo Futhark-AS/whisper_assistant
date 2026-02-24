@@ -20,6 +20,7 @@ public final class HotkeyManager: @unchecked Sendable {
     }
 
     private static let signature: OSType = 0x57415354 // WAST
+    private static let logQueue = DispatchQueue(label: "com.futhark.quedo.hotkeys.log", qos: .utility)
 
     private var handlerRef: EventHandlerRef?
     private var hotkeyRefs: [UInt32: EventHotKeyRef] = [:]
@@ -41,9 +42,11 @@ public final class HotkeyManager: @unchecked Sendable {
     public init() throws {
         try installEventHandler()
         installWakeObserver()
+        logDebug("manager_init")
     }
 
     deinit {
+        logDebug("manager_deinit")
         if let wakeObserver {
             NotificationCenter.default.removeObserver(wakeObserver)
         }
@@ -56,10 +59,12 @@ public final class HotkeyManager: @unchecked Sendable {
     /// Activates hotkey bindings with bounded retry.
     public func setBindings(_ bindings: [HotkeyBinding], handler: @escaping @Sendable (String) -> Void) async throws {
         updateBindingsSnapshot(bindings: bindings, handler: handler)
+        logDebug("set_bindings count=\(bindings.count) bindings=\(bindings.map(describe).joined(separator: ","))")
 
         do {
             try registerAll(bindings: bindings)
         } catch {
+            logDebug("set_bindings_retry reason=\(String(describing: error))")
             try? await Task.sleep(for: .milliseconds(300))
             try registerAll(bindings: bindings)
         }
@@ -67,6 +72,7 @@ public final class HotkeyManager: @unchecked Sendable {
 
     /// Unregisters all active hotkeys.
     public func deactivate() {
+        logDebug("deactivate")
         unregisterAll()
     }
 
@@ -81,8 +87,10 @@ public final class HotkeyManager: @unchecked Sendable {
         for delay in [300, 1000] {
             do {
                 try registerAll(bindings: bindings)
+                logDebug("recover_after_wake_success delay_ms=\(delay)")
                 return
             } catch {
+                logDebug("recover_after_wake_retry delay_ms=\(delay) reason=\(String(describing: error))")
                 try? await Task.sleep(for: .milliseconds(delay))
             }
         }
@@ -118,6 +126,7 @@ public final class HotkeyManager: @unchecked Sendable {
         for binding in bindings {
             let combo = MonitoredHotkey(keyCode: binding.keyCode, modifiers: normalizedModifiers(binding.modifiers))
             if seenCombos.contains(combo) {
+                logDebug("register_conflict duplicate=\(describe(combo))")
                 throw HotkeyError.conflict
             }
             seenCombos.insert(combo)
@@ -140,11 +149,13 @@ public final class HotkeyManager: @unchecked Sendable {
 
             if status == eventHotKeyExistsErr {
                 unregisterAll()
+                logDebug("register_conflict carbon_exists action=\(binding.actionID) key_code=\(binding.keyCode)")
                 throw HotkeyError.conflict
             }
 
             guard status == noErr, let ref else {
                 unregisterAll()
+                logDebug("register_failed status=\(status) action=\(binding.actionID) key_code=\(binding.keyCode)")
                 throw HotkeyError.registrationFailed(status: status)
             }
 
@@ -152,14 +163,17 @@ public final class HotkeyManager: @unchecked Sendable {
             hotkeyRefs[identifier.id] = ref
             actionByID[identifier.id] = binding.actionID
             lock.unlock()
+            logDebug("register_carbon action=\(binding.actionID) id=\(identifier.id) key_code=\(binding.keyCode)")
         }
 
         configureEventMonitors(bindings: monitored)
+        logDebug("register_complete carbon=\(carbonBindings.count) monitored=\(monitored.count)")
     }
 
     private func unregisterAll() {
         lock.lock()
         let refs = Array(hotkeyRefs.values)
+        let hadState = !refs.isEmpty || !monitoredBindings.isEmpty || !modifierOnlyCombos.isEmpty
         hotkeyRefs.removeAll(keepingCapacity: true)
         actionByID.removeAll(keepingCapacity: true)
         monitoredBindings.removeAll(keepingCapacity: true)
@@ -173,6 +187,9 @@ public final class HotkeyManager: @unchecked Sendable {
         }
 
         removeEventMonitors()
+        if hadState {
+            logDebug("unregister_all")
+        }
     }
 
     private func handleHotkeyEvent(_ event: EventRef) {
@@ -188,14 +205,17 @@ public final class HotkeyManager: @unchecked Sendable {
         )
 
         guard status == noErr else {
+            logDebug("carbon_event_param_failed status=\(status)")
             return
         }
 
         let (action, handler) = currentActionAndHandler(for: hotkeyID.id)
 
         guard let action else {
+            logDebug("carbon_event_unmapped id=\(hotkeyID.id)")
             return
         }
+        logDebug("carbon_dispatch id=\(hotkeyID.id) action=\(action)")
         handler?(action)
     }
 
@@ -215,6 +235,7 @@ public final class HotkeyManager: @unchecked Sendable {
         guard shouldDispatch, let action else {
             return
         }
+        logDebug("monitored_keydown_dispatch combo=\(describe(combo)) action=\(action)")
         handler?(action)
     }
 
@@ -233,6 +254,7 @@ public final class HotkeyManager: @unchecked Sendable {
                 guard shouldDispatch, let action else {
                     continue
                 }
+                logDebug("monitored_modifiers_dispatch combo=\(describe(combo)) action=\(action)")
                 handler?(action)
             } else {
                 markModifierOnlyComboExited(combo)
@@ -370,6 +392,7 @@ public final class HotkeyManager: @unchecked Sendable {
             lastDispatchByMonitoredHotkey.removeAll(keepingCapacity: true)
             lock.unlock()
             removeEventMonitors()
+            logDebug("event_monitors_removed")
             return
         }
 
@@ -390,6 +413,7 @@ public final class HotkeyManager: @unchecked Sendable {
         lock.unlock()
 
         installEventMonitorsIfNeeded()
+        logDebug("event_monitors_configured count=\(bindings.count)")
     }
 
     private func installEventMonitorsIfNeeded() {
@@ -469,6 +493,59 @@ public final class HotkeyManager: @unchecked Sendable {
             }
             Task {
                 await self.recoverAfterWake()
+            }
+        }
+    }
+
+    private func describe(_ binding: HotkeyBinding) -> String {
+        "action=\(binding.actionID)|key_code=\(binding.keyCode)|mods=\(describe(binding.modifiers))"
+    }
+
+    private func describe(_ combo: MonitoredHotkey) -> String {
+        if combo.keyCode == HotkeyBinding.modifiersOnlyKeyCode {
+            return "modifier_only|mods=\(describe(combo.modifiers))"
+        }
+        return "key_code=\(combo.keyCode)|mods=\(describe(combo.modifiers))"
+    }
+
+    private func describe(_ modifiers: HotkeyModifiers) -> String {
+        var parts: [String] = []
+        if modifiers.contains(.function) { parts.append("fn") }
+        if modifiers.contains(.control) { parts.append("ctrl") }
+        if modifiers.contains(.shift) { parts.append("shift") }
+        if modifiers.contains(.option) { parts.append("opt") }
+        if modifiers.contains(.command) { parts.append("cmd") }
+        return parts.isEmpty ? "none" : parts.joined(separator: "+")
+    }
+
+    private static func hotkeyLogURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Quedo", isDirectory: true)
+            .appendingPathComponent("logs", isDirectory: true)
+        return base.appendingPathComponent("hotkeys.log")
+    }
+
+    private func logDebug(_ message: String) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
+        let line = "\(timestamp) \(message)\n"
+        let url = Self.hotkeyLogURL()
+
+        Self.logQueue.async {
+            do {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    _ = FileManager.default.createFile(atPath: url.path, contents: nil)
+                }
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                if let data = line.data(using: .utf8) {
+                    try handle.write(contentsOf: data)
+                }
+            } catch {
+                // Avoid surfacing diagnostics write failures to runtime flow.
             }
         }
     }
