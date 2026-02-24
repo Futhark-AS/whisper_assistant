@@ -89,8 +89,8 @@ if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
     # must be re-signed with our Developer ID identity for notarization to pass.
     codesign --force --timestamp --options runtime --deep --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
   fi
-  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
-  codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
+  codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
+  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
 else
   # Ensure unsigned builds still have a structurally valid bundle signature.
   # Without this, Gatekeeper can report "is damaged" for linker-signed binaries.
