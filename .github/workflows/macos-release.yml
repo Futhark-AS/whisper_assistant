@@ -163,7 +163,9 @@ jobs:
       - name: Homebrew cask smoke test
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
         run: |
-          brew uninstall --cask quedo >/dev/null 2>&1 || true
-          brew install --cask --appdir="$HOME/Applications" ./homebrew-tap/Casks/quedo.rb
+          brew uninstall --cask futhark-as/tap/quedo >/dev/null 2>&1 || true
+          brew untap futhark-as/tap >/dev/null 2>&1 || true
+          brew tap futhark-as/tap https://github.com/Futhark-AS/homebrew-tap
+          brew install --cask --appdir="$HOME/Applications" futhark-as/tap/quedo
           test -d "$HOME/Applications/Quedo.app"
-          brew uninstall --cask quedo
+          brew uninstall --cask futhark-as/tap/quedo
