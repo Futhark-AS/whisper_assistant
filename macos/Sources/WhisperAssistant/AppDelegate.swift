@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = notification
 
+        guard validateInstallLocation() else {
+            return
+        }
+
         let menuBar = MenuBarController()
         menuBarController = menuBar
 
@@ -92,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         appController = controller
 
+        await requestInitialMicrophonePermissionIfNeeded(permissionCoordinator: permissionCoordinator)
+
         menuBar.setActionHandler { [weak self] action in
             guard let self else {
                 return
@@ -161,6 +167,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerForLoginAtStartupIfEnabled(settings: bootSettings)
 
         await controller.boot()
+    }
+
+    private func validateInstallLocation() -> Bool {
+        let bundlePath = Bundle.main.bundlePath
+        guard bundlePath.contains("/AppTranslocation/") else {
+            return true
+        }
+
+        let message = """
+WhisperAssistant is running from a translocated path:
+\(bundlePath)
+
+Move the app to /Applications and reopen it. Running translocated can break permission enrollment.
+"""
+        presentInfoAlert(title: "Install to Applications", message: message)
+        NSApp.terminate(nil)
+        return false
+    }
+
+    private func requestInitialMicrophonePermissionIfNeeded(permissionCoordinator: PermissionCoordinator) async {
+        let permissions = await permissionCoordinator.checkAll()
+        guard permissions.microphone == .notDetermined else {
+            return
+        }
+
+        // Bring prompt forward to avoid silent background denials on first launch.
+        NSApp.activate(ignoringOtherApps: true)
+        _ = await permissionCoordinator.requestMicrophonePermission()
     }
 
     private func showPreferences(configurationManager: ConfigurationManager) {
