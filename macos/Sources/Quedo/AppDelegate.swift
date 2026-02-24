@@ -249,7 +249,9 @@ Move the app to /Applications and reopen it. Running translocated can break perm
         let window = NSWindow(contentViewController: controller)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        window.setContentSize(NSSize(width: 680, height: 760))
+        window.setContentSize(NSSize(width: 960, height: 720))
+        window.minSize = NSSize(width: 860, height: 640)
+        window.toolbarStyle = .unified
 
         let windowController = NSWindowController(window: window)
         windowController.showWindow(nil)

@@ -79,6 +79,18 @@ Optional signing/notarization in CI is enabled when these repo secrets exist:
 - `APPLE_TEAM_ID`
 - `APPLE_APP_PASSWORD`
 
+## Install with Homebrew (macOS app)
+
+```bash
+brew tap Futhark-AS/tap
+brew install --cask quedo
+```
+
+Notes:
+- Current cask targets Apple Silicon (`arm64`) and macOS 14+.
+- Cask updates are automated from tagged releases when `HOMEBREW_TAP_GITHUB_TOKEN` is set in this repo's GitHub secrets.
+- Tap repo expected by CI: `Futhark-AS/homebrew-tap`.
+
 **Default hotkeys:**
 - `Ctrl+Shift+1` — Toggle recording (press to start, press again to stop and transcribe)
 - `Ctrl+Shift+2` — Retry last transcription

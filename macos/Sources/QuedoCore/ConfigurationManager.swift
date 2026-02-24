@@ -111,6 +111,38 @@ public actor ConfigurationManager {
         SecItemDelete(legacyDeleteQuery as CFDictionary)
     }
 
+    /// Removes provider API key from local and shared stores.
+    public func clearAPIKey(for provider: ProviderKind) throws {
+        var secrets = try loadLocalSecrets()
+        secrets.removeValue(forKey: provider.rawValue)
+        try saveLocalSecrets(secrets)
+
+        if sharedConfigEnabled {
+            var sharedConfig = try loadSharedConfigValues()
+            switch provider {
+            case .groq:
+                sharedConfig.removeValue(forKey: Constants.envGroqAPIKey)
+            case .openAI:
+                sharedConfig.removeValue(forKey: Constants.envOpenAIAPIKey)
+            }
+            try saveSharedConfigValues(sharedConfig)
+        }
+
+        let deleteQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: Constants.keychainService,
+            kSecAttrAccount: provider.rawValue
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let legacyDeleteQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: Constants.legacyKeychainService,
+            kSecAttrAccount: provider.rawValue
+        ]
+        SecItemDelete(legacyDeleteQuery as CFDictionary)
+    }
+
     /// Reads provider API key from local secrets first, then keychain fallback.
     public func loadAPIKey(for provider: ProviderKind) throws -> String? {
         let localSecrets = try loadLocalSecrets()

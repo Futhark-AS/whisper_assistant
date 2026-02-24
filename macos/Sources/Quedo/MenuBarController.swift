@@ -109,47 +109,98 @@ final class MenuBarController: NSObject {
     }
 
     private func quedoTemplateImage(for phase: AppPhase) -> NSImage? {
-        let mappedState: (dotRadius: CGFloat, lineWidth: CGFloat)?
-        switch phase {
-        case .ready:
-            mappedState = (dotRadius: 1.6, lineWidth: 1.4)
-        case .recording:
-            mappedState = (dotRadius: 2.3, lineWidth: 1.5)
-        case .processing, .streamingPartial, .providerFallback, .outputting:
-            mappedState = (dotRadius: 1.8, lineWidth: 1.8)
-        default:
-            mappedState = nil
+        enum IconStyle {
+            case ready
+            case recording
+            case processing
         }
 
-        guard let mappedState else {
+        let style: IconStyle?
+        switch phase {
+        case .ready:
+            style = .ready
+        case .recording:
+            style = .recording
+        case .processing, .streamingPartial, .providerFallback, .outputting:
+            style = .processing
+        default:
+            style = nil
+        }
+
+        guard let style else {
             return nil
         }
 
-        let image = NSImage(size: NSSize(width: 18, height: 18))
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        let size = NSSize(width: 22, height: 22)
+        let image = NSImage(size: size, flipped: false) { _ in
+            let center = NSPoint(x: 11, y: 11)
 
-        let center = NSPoint(x: 9, y: 9)
-        let dotRect = NSRect(
-            x: center.x - mappedState.dotRadius,
-            y: center.y - mappedState.dotRadius,
-            width: mappedState.dotRadius * 2,
-            height: mappedState.dotRadius * 2
-        )
+            NSColor.white.setFill()
+            NSColor.white.setStroke()
 
-        NSColor.white.setFill()
-        NSColor.white.setStroke()
-        NSBezierPath(ovalIn: dotRect).fill()
+            switch style {
+            case .ready:
+                let dotRadius: CGFloat = 2.0
+                let dotRect = NSRect(
+                    x: center.x - dotRadius, y: center.y - dotRadius,
+                    width: dotRadius * 2, height: dotRadius * 2
+                )
+                NSBezierPath(ovalIn: dotRect).fill()
 
-        let innerArc = NSBezierPath()
-        innerArc.lineWidth = mappedState.lineWidth
-        innerArc.appendArc(withCenter: center, radius: 3.6, startAngle: -38, endAngle: 38, clockwise: false)
-        innerArc.stroke()
+                let innerArc = NSBezierPath()
+                innerArc.lineWidth = 1.5
+                innerArc.appendArc(withCenter: center, radius: 4.5, startAngle: -60, endAngle: 60, clockwise: false)
+                innerArc.stroke()
 
-        let outerArc = NSBezierPath()
-        outerArc.lineWidth = mappedState.lineWidth
-        outerArc.appendArc(withCenter: center, radius: 5.8, startAngle: -38, endAngle: 38, clockwise: false)
-        outerArc.stroke()
+                let outerArc = NSBezierPath()
+                outerArc.lineWidth = 1.5
+                outerArc.appendArc(withCenter: center, radius: 7.0, startAngle: -60, endAngle: 60, clockwise: false)
+                outerArc.stroke()
+
+            case .recording:
+                let dotRadius: CGFloat = 2.8
+                let dotRect = NSRect(
+                    x: center.x - dotRadius, y: center.y - dotRadius,
+                    width: dotRadius * 2, height: dotRadius * 2
+                )
+                NSBezierPath(ovalIn: dotRect).fill()
+
+                let innerArc = NSBezierPath()
+                innerArc.lineWidth = 3.0
+                innerArc.appendArc(withCenter: center, radius: 4.5, startAngle: -70, endAngle: 70, clockwise: false)
+                innerArc.stroke()
+
+                let outerArc = NSBezierPath()
+                outerArc.lineWidth = 3.0
+                outerArc.appendArc(withCenter: center, radius: 7.0, startAngle: -70, endAngle: 70, clockwise: false)
+                outerArc.stroke()
+
+            case .processing:
+                let dotRadius: CGFloat = 2.0
+                let dotRect = NSRect(
+                    x: center.x - dotRadius, y: center.y - dotRadius,
+                    width: dotRadius * 2, height: dotRadius * 2
+                )
+                NSBezierPath(ovalIn: dotRect).fill()
+
+                let arc1 = NSBezierPath()
+                arc1.lineWidth = 1.8
+                arc1.appendArc(withCenter: center, radius: 3.5, startAngle: -45, endAngle: 45, clockwise: false)
+                arc1.stroke()
+
+                let arc2 = NSBezierPath()
+                arc2.lineWidth = 1.8
+                arc2.appendArc(withCenter: center, radius: 5.5, startAngle: -45, endAngle: 45, clockwise: false)
+                arc2.stroke()
+
+                let arc3 = NSBezierPath()
+                arc3.lineWidth = 1.8
+                arc3.appendArc(withCenter: center, radius: 7.5, startAngle: -45, endAngle: 45, clockwise: false)
+                arc3.stroke()
+            }
+
+            return true
+        }
 
         return image
     }

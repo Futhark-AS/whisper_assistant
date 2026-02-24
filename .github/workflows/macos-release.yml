@@ -20,6 +20,8 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+      HOMEBREW_TAP_REPOSITORY: Futhark-AS/homebrew-tap
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -105,3 +107,63 @@ jobs:
             dist/quedo-cli-macos.zip
             dist/SHA256SUMS.txt
           generate_release_notes: true
+
+      - name: Resolve Homebrew cask metadata
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          DMG_SHA256=$(awk '$2 == "Quedo.dmg" {print $1}' dist/SHA256SUMS.txt)
+
+          if [[ -z "$DMG_SHA256" ]]; then
+            echo "Failed to resolve Quedo.dmg SHA256 from dist/SHA256SUMS.txt" >&2
+            exit 1
+          fi
+
+          echo "RELEASE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
+          echo "DMG_SHA256=$DMG_SHA256" >> "$GITHUB_ENV"
+
+      - name: Skip Homebrew tap update (missing token)
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN == '' }}
+        run: |
+          echo "HOMEBREW_TAP_GITHUB_TOKEN is not set; skipping Homebrew tap update."
+
+      - name: Checkout Homebrew tap repository
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HOMEBREW_TAP_REPOSITORY }}
+          token: ${{ env.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew cask file
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
+        run: |
+          macos/scripts/update-homebrew-tap.sh \
+            --tap-dir homebrew-tap \
+            --version "$RELEASE_VERSION" \
+            --sha256 "$DMG_SHA256" \
+            --source-repo "Futhark-AS/quedo"
+
+      - name: Commit and push Homebrew cask update
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- Casks/quedo.rb; then
+            echo "No Homebrew cask changes detected."
+            exit 0
+          fi
+
+          git add Casks/quedo.rb
+          git commit -m "quedo ${RELEASE_VERSION}"
+          git push origin HEAD
+
+      - name: Homebrew cask smoke test
+        if: ${{ startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
+        run: |
+          brew uninstall --cask quedo >/dev/null 2>&1 || true
+          brew install --cask --appdir="$HOME/Applications" ./homebrew-tap/Casks/quedo.rb
+          test -d "$HOME/Applications/Quedo.app"
+          brew uninstall --cask quedo
