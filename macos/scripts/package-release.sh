@@ -60,6 +60,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <string>14.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Whisper Assistant needs microphone access to record your voice for transcription.</string>
 </dict>
 </plist>
 EOF
