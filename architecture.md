@@ -1,4 +1,4 @@
-# whisper_assistant macOS Rewrite Architecture (Wave 2)
+# quedo macOS Rewrite Architecture (Wave 2)
 
 ## 1. Scope and Quality Bar
 
@@ -45,7 +45,7 @@ This section inventories all features present in the current codebase. The Swift
 
 ### 3.1.1 CLI and daemon lifecycle
 
-From `src/whisper_assistant/cli.py`:
+From `src/quedo/cli.py`:
 
 - Version command output with upgrade hint.
 - `init` wizard:
@@ -95,7 +95,7 @@ From `src/whisper_assistant/cli.py`:
 
 ### 3.1.4 Recording, transcription, output runtime
 
-From `src/whisper_assistant/main.py` and package modules:
+From `src/quedo/main.py` and package modules:
 
 - Global hotkeys: toggle record, cancel record, retry last transcription.
 - Recording lock prevents overlapping recording flows.
@@ -109,7 +109,7 @@ From `src/whisper_assistant/main.py` and package modules:
 
 ### 3.1.5 Audio recorder reliability workarounds
 
-From `src/whisper_assistant/packages/audio_recorder/main.py`:
+From `src/quedo/packages/audio_recorder/main.py`:
 
 - PortAudio prewarm via device query.
 - Stream open retries with escalating recovery.
@@ -122,7 +122,7 @@ From `src/whisper_assistant/packages/audio_recorder/main.py`:
 
 ### 3.1.6 Transcriber capabilities
 
-From `src/whisper_assistant/packages/transcriber/main.py`:
+From `src/quedo/packages/transcriber/main.py`:
 
 - In-memory array transcription.
 - File transcription for audio and video inputs.
@@ -134,7 +134,7 @@ From `src/whisper_assistant/packages/transcriber/main.py`:
 
 ### 3.1.7 Permissions and platform behavior
 
-From `src/whisper_assistant/permissions.py`:
+From `src/quedo/permissions.py`:
 
 - Accessibility trust check.
 - Input Monitoring preflight check.
@@ -143,14 +143,14 @@ From `src/whisper_assistant/permissions.py`:
 
 ### 3.1.8 Notifications and audio cues
 
-From `src/whisper_assistant/packages/notifications/main.py`:
+From `src/quedo/packages/notifications/main.py`:
 
 - Info/error desktop notifications.
 - Sound cues for key stages and failures.
 
 ### 3.1.9 Paths and logging
 
-From `src/whisper_assistant/paths.py` and `log_config.py`:
+From `src/quedo/paths.py` and `log_config.py`:
 
 - XDG-style directories for config/data/state.
 - Rotating debug/info logs.
@@ -257,7 +257,7 @@ From `misc/pyannote-diarization/`:
 
 Use a two-layer macOS architecture for isolation and resilience:
 
-- `WhisperAssistant.app` (UI + menu bar + onboarding + settings)
+- `Quedo.app` (UI + menu bar + onboarding + settings)
 - `WhisperCoreService` (core orchestration, transcription pipeline, history persistence)
 
 Communication model:
@@ -1677,11 +1677,11 @@ Even with a GUI-first app, preserve power-user workflows.
 
 Recommended companion CLI (thin shim to core service):
 
-- `whisper-assistant status`
-- `whisper-assistant doctor`
-- `whisper-assistant logs`
-- `whisper-assistant transcribe <file>`
-- `whisper-assistant history list|play|transcribe`
+- `quedo status`
+- `quedo doctor`
+- `quedo logs`
+- `quedo transcribe <file>`
+- `quedo history list|play|transcribe`
 
 CLI behavior:
 

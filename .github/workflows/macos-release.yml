@@ -78,9 +78,9 @@ jobs:
         with:
           name: macos-release-artifacts
           path: |
-            dist/WhisperAssistant.app.zip
-            dist/WhisperAssistant.dmg
-            dist/wa-macos.zip
+            dist/Quedo.app.zip
+            dist/Quedo.dmg
+            dist/quedo-cli-macos.zip
             dist/SHA256SUMS.txt
 
       - name: Publish GitHub release
@@ -88,8 +88,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/WhisperAssistant.app.zip
-            dist/WhisperAssistant.dmg
-            dist/wa-macos.zip
+            dist/Quedo.app.zip
+            dist/Quedo.dmg
+            dist/quedo-cli-macos.zip
             dist/SHA256SUMS.txt
           generate_release_notes: true

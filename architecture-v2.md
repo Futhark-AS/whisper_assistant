@@ -1,4 +1,4 @@
-# whisper_assistant Architecture v2 (Final, Implementation-Ready)
+# quedo Architecture v2 (Final, Implementation-Ready)
 
 ## 1. Purpose
 
@@ -132,7 +132,7 @@ To remove v1 over-engineering, architecture is single-process menu bar app with 
 
 Process:
 
-- `WhisperAssistant.app` hosts menu bar UI and all services.
+- `Quedo.app` hosts menu bar UI and all services.
 
 Service modules:
 
@@ -366,7 +366,7 @@ MAS pipeline:
 
 Base path:
 
-- `~/Library/Application Support/Whisper Assistant/`
+- `~/Library/Application Support/Quedo/`
 
 Structure:
 
@@ -402,7 +402,7 @@ SQLite tables:
 
 Source path detection:
 
-- default: `~/.local/share/whisper-assistant/history/`
+- default: `~/.local/share/quedo/history/`
 - if XDG override env vars exist, resolve equivalent path.
 
 Per entry migration algorithm:
@@ -727,7 +727,7 @@ Legend:
 - `Changed`: preserved with intentional architectural difference.
 - `Dropped`: intentionally removed in v1.
 
-## 15.1 `src/whisper_assistant/env.py`
+## 15.1 `src/quedo/env.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -739,7 +739,7 @@ Legend:
 | `GROQ_TIMEOUT` positive int validation | Provider timeout validation with min/max bounds | Kept | min 1s, max 120s |
 | vocabulary comma parsing | `vocabularyHints[]` normalized and trimmed | Kept | Empty tokens removed |
 
-## 15.2 `src/whisper_assistant/paths.py`
+## 15.2 `src/quedo/paths.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -747,7 +747,7 @@ Legend:
 | create config with defaults and `0600` | Defaults in `UserDefaults`; secrets in Keychain; file permissions for logs/media locked to user | Changed | More secure split for secret vs non-secret |
 | history/log/pid path helpers | `HistoryService` and `DiagnosticsService` path providers | Changed | No pid file model in single-process app |
 
-## 15.3 `src/whisper_assistant/permissions.py`
+## 15.3 `src/quedo/permissions.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -757,14 +757,14 @@ Legend:
 | `check_all()` aggregation | `PermissionSnapshot` struct with all flags | Kept | used by doctor UI/CLI |
 | open settings by pane | `openSystemSettings(pane)` with deep links | Kept | same user affordance |
 
-## 15.4 `src/whisper_assistant/log_config.py`
+## 15.4 `src/quedo/log_config.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
 | console + debug/info rotating logs | `OSLog` + rolling log mirror files | Changed | preserves tail/export workflows |
 | suppress noisy HTTP info logs | provider logger category filters | Kept | noise suppression retained |
 
-## 15.5 `src/whisper_assistant/packages/audio_recorder/main.py`
+## 15.5 `src/quedo/packages/audio_recorder/main.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -776,7 +776,7 @@ Legend:
 | stream close timeout guard | stop watchdog 2.0s force teardown | Kept | concrete timeout retained |
 | device diagnostics on failures | route/device snapshot event logging | Kept | includes selected input and available devices |
 
-## 15.6 `src/whisper_assistant/packages/keyboard_listener/main.py`
+## 15.6 `src/quedo/packages/keyboard_listener/main.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -784,14 +784,14 @@ Legend:
 | callback isolation with error logging | hotkey callback dispatch via actor + guarded error handling | Kept | no callback crash propagation |
 | start/stop listener lifecycle | `HotkeyService.activate()/deactivate()` | Kept | tied to app phase |
 
-## 15.7 `src/whisper_assistant/packages/notifications/main.py`
+## 15.7 `src/quedo/packages/notifications/main.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
 | info/error notifications | UserNotifications-based alerts | Kept | copy standardized by UI state matrix |
 | sound playback cues | configurable start/process/success/error sounds | Kept | defaults map to current cues |
 
-## 15.8 `src/whisper_assistant/packages/transcriber/main.py`
+## 15.8 `src/quedo/packages/transcriber/main.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -804,7 +804,7 @@ Legend:
 | request-too-large handling | auto chunk shrink + actionable error | Kept | same user guidance intent |
 | **chunk boundary diagnostic context logs** | boundary context logs persisted in diagnostics | Kept | explicitly preserved per review finding |
 
-## 15.9 `src/whisper_assistant/main.py`
+## 15.9 `src/quedo/main.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -819,7 +819,7 @@ Legend:
 | history save async | `HistoryService.saveSession()` async non-blocking | Kept | no user-blocking persistence |
 | permission checks on startup for hotkeys/paste | boot checks + degraded state mapping | Kept | more explicit state transition |
 
-## 15.10 `src/whisper_assistant/cli.py`
+## 15.10 `src/quedo/cli.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|
@@ -836,7 +836,7 @@ Legend:
 | `config show` | same command (prints non-secret settings) | Kept | secrets masked |
 | `config edit` interactive editor | removed (GUI settings is source of truth) | Dropped | intentional simplification |
 
-## 15.11 `src/whisper_assistant/__init__.py` and package `__init__.py`
+## 15.11 `src/quedo/__init__.py` and package `__init__.py`
 
 | Python Behavior | Swift v2 Mapping | Status | Notes |
 |---|---|---|---|

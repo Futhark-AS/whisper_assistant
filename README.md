@@ -1,4 +1,4 @@
-# Whisper Assistant
+# Quedo
 
 Voice-to-text tool powered by Groq's Whisper API. Press a hotkey, speak, and get instant transcription.
 
@@ -7,9 +7,9 @@ Voice-to-text tool powered by Groq's Whisper API. Press a hotkey, speak, and get
 Requires macOS and [uv](https://github.com/astral-sh/uv).
 
 ```bash
-uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git
-whisper-assistant --version  # shows how to upgrade
-whisper-assistant init
+uv tool install quedo --from git+https://github.com/Futhark-AS/quedo.git
+quedo --version  # shows how to upgrade
+quedo init
 ```
 
 The `init` wizard will:
@@ -22,52 +22,52 @@ The `init` wizard will:
 **Where files are stored** ([XDG Base Directory Specification](https://xdgbasedirectoryspecification.com/)):
 | Path | Contents |
 |------|----------|
-| `~/.config/whisper-assistant/config.env` | API key, hotkeys, preferences |
-| `~/.local/share/whisper-assistant/history/` | Audio recordings & transcriptions |
-| `~/.local/state/whisper-assistant/logs/` | Log files |
-| `~/.local/state/whisper-assistant/daemon.pid` | Daemon process ID |
+| `~/.config/quedo/config.env` | API key, hotkeys, preferences |
+| `~/.local/share/quedo/history/` | Audio recordings & transcriptions |
+| `~/.local/state/quedo/logs/` | Log files |
+| `~/.local/state/quedo/daemon.pid` | Daemon process ID |
 
 ## Usage
 
 ```bash
 # Daemon control
-whisper-assistant start
-whisper-assistant stop
-whisper-assistant restart
-whisper-assistant status
+quedo start
+quedo stop
+quedo restart
+quedo status
 
 # View logs
-whisper-assistant logs
-whisper-assistant logs --stderr
+quedo logs
+quedo logs --stderr
 
 # Configuration
-whisper-assistant config show
-whisper-assistant config edit
+quedo config show
+quedo config edit
 
 # History
-whisper-assistant history list
-whisper-assistant history play 1      # play most recent recording
-whisper-assistant history transcribe 1  # re-transcribe most recent
+quedo history list
+quedo history play 1      # play most recent recording
+quedo history transcribe 1  # re-transcribe most recent
 
 # Transcribe any audio file
-whisper-assistant transcribe /path/to/audio.wav
+quedo transcribe /path/to/audio.wav
 ```
 
 ## macOS App Downloads (GitHub Releases)
 
 For friends who want a direct app download:
 
-1. Open GitHub Releases and download `WhisperAssistant.dmg` (or `WhisperAssistant.app.zip`).
-2. Move `WhisperAssistant.app` to `/Applications`.
+1. Open GitHub Releases and download `Quedo.dmg` (or `Quedo.app.zip`).
+2. Move `Quedo.app` to `/Applications`.
 3. Launch app and grant requested permissions.
 
 Release publishing is automated:
 
 - Push a tag like `v1.2.3`
 - GitHub Actions builds and uploads:
-  - `WhisperAssistant.dmg`
-  - `WhisperAssistant.app.zip`
-  - `wa-macos.zip`
+  - `Quedo.dmg`
+  - `Quedo.app.zip`
+  - `quedo-cli-macos.zip`
   - `SHA256SUMS.txt`
 
 Optional signing/notarization in CI is enabled when these repo secrets exist:
@@ -84,18 +84,18 @@ Optional signing/notarization in CI is enabled when these repo secrets exist:
 - `Ctrl+Shift+2` — Retry last transcription
 - `Ctrl+Shift+3` — Cancel recording
 
-**Config location:** `~/.config/whisper-assistant/config.env`
+**Config location:** `~/.config/quedo/config.env`
 
 ## About uv tools
 
 This CLI is installed via `uv tool install`, which:
-- Creates an isolated venv at `~/.local/share/uv/tools/whisper-assistant/`
+- Creates an isolated venv at `~/.local/share/uv/tools/quedo/`
 - Symlinks the CLI to `~/.local/bin/` (should be in your PATH)
 
 If you want to use a shorter name for running the CLI, you can symlink it:
 
 ```bash
-ln -sf ~/.local/bin/whisper-assistant ~/.local/bin/whisp
+ln -sf ~/.local/bin/quedo ~/.local/bin/whisp
 ```
 
 **Why git instead of PyPI?**
@@ -104,13 +104,13 @@ ln -sf ~/.local/bin/whisper-assistant ~/.local/bin/whisp
 
 **Trade-off:** No pinned versions — you always pull latest. For stability, pin to a commit:
 ```bash
-uv tool install whisper-assistant --from git+https://github.com/Futhark-AS/whisper_assistant.git@<commit-sha>
+uv tool install quedo --from git+https://github.com/Futhark-AS/quedo.git@<commit-sha>
 ```
 
 **Useful commands:**
 ```bash
 uv tool list       # see installed tools
-uv tool uninstall whisper-assistant
+uv tool uninstall quedo
 ```
 
 ## Contributing
@@ -118,10 +118,10 @@ uv tool uninstall whisper-assistant
 PRs welcome. For major changes, open an issue first.
 
 ```bash
-git clone https://github.com/Futhark-AS/whisper_assistant.git
-cd whisper_assistant
+git clone https://github.com/Futhark-AS/quedo.git
+cd quedo
 uv sync
-uv run whisper-assistant --help
+uv run quedo --help
 ```
 
 [MIT License](LICENSE)

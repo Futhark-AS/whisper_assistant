@@ -23,9 +23,9 @@ from groq import Groq
 from pyannote.audio import Pipeline
 import torch
 
-# Load .env from current dir, then from whisper-assistant config
+# Load .env from current dir, then from quedo config
 load_dotenv()
-load_dotenv(Path.home() / ".config" / "whisper-assistant" / "config.env")
+load_dotenv(Path.home() / ".config" / "quedo" / "config.env")
 
 # Video file extensions that we can extract audio from
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".flv", ".wmv"}

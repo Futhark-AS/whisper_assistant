@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-INPUT_DIR="$HOME/h/dev/whisper-assistant/transcription-inputs"
-OUTPUT_DIR="$HOME/h/dev/whisper-assistant/transcription-results"
+INPUT_DIR="$HOME/h/dev/quedo/transcription-inputs"
+OUTPUT_DIR="$HOME/h/dev/quedo/transcription-results"
 SCRIPT_DIR="$(dirname "$0")"
 
 for f in "$INPUT_DIR"/*; do

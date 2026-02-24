@@ -1,4 +1,4 @@
-# Rewrite Recommendation for `whisper_assistant`
+# Rewrite Recommendation for `quedo`
 
 ## Executive Summary
 
@@ -17,10 +17,10 @@ A pure cross-platform stack (Rust-only, Go-only, or Tauri) can reduce some Pytho
 
 Your business logic is simple, but runtime glue is fragile:
 
-- `src/whisper_assistant/packages/audio_recorder/main.py` has extensive defensive logic for PortAudio instability: retry ladders, fallback sample rates, aggressive backend resets (`_terminate/_initialize`), diagnostics, close timeouts, and forced recovery.
-- `src/whisper_assistant/main.py` adds another layer of auto-retry around recorder startup failures.
-- `src/whisper_assistant/packages/keyboard_listener/main.py` is a thin `pynput` wrapper with limited self-healing when listeners jam.
-- `src/whisper_assistant/permissions.py` uses best-effort/fail-open checks, which reduces crash risk but can hide broken permission states.
+- `src/quedo/packages/audio_recorder/main.py` has extensive defensive logic for PortAudio instability: retry ladders, fallback sample rates, aggressive backend resets (`_terminate/_initialize`), diagnostics, close timeouts, and forced recovery.
+- `src/quedo/main.py` adds another layer of auto-retry around recorder startup failures.
+- `src/quedo/packages/keyboard_listener/main.py` is a thin `pynput` wrapper with limited self-healing when listeners jam.
+- `src/quedo/permissions.py` uses best-effort/fail-open checks, which reduces crash risk but can hide broken permission states.
 
 In short: much of your complexity is not product complexity. It is runtime compensation for abstraction leaks.
 

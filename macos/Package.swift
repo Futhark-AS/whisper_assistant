@@ -2,22 +2,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "WhisperAssistant",
+    name: "Quedo",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .library(
-            name: "WhisperAssistantCore",
-            targets: ["WhisperAssistantCore"]
+            name: "QuedoCore",
+            targets: ["QuedoCore"]
         ),
         .executable(
-            name: "WhisperAssistant",
-            targets: ["WhisperAssistant"]
+            name: "Quedo",
+            targets: ["Quedo"]
         ),
         .executable(
-            name: "wa",
-            targets: ["WhisperAssistantCLI"]
+            name: "quedo-cli",
+            targets: ["QuedoCLI"]
         )
     ],
     dependencies: [
@@ -26,29 +26,32 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "WhisperAssistantCore",
+            name: "QuedoCore",
             dependencies: [],
             linkerSettings: [
                 .linkedLibrary("sqlite3")
             ]
         ),
         .executableTarget(
-            name: "WhisperAssistant",
+            name: "Quedo",
             dependencies: [
-                "WhisperAssistantCore",
+                "QuedoCore",
                 .product(name: "Sparkle", package: "Sparkle")
+            ],
+            resources: [
+                .process("Assets.xcassets")
             ]
         ),
         .executableTarget(
-            name: "WhisperAssistantCLI",
+            name: "QuedoCLI",
             dependencies: [
-                "WhisperAssistantCore",
+                "QuedoCore",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
         .testTarget(
-            name: "WhisperAssistantCoreTests",
-            dependencies: ["WhisperAssistantCore"]
+            name: "QuedoCoreTests",
+            dependencies: ["QuedoCore"]
         )
     ]
 )

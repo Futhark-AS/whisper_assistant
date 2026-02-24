@@ -491,7 +491,7 @@ wheels = [
 ]
 
 [[package]]
-name = "whisper-assistant"
+name = "quedo"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [

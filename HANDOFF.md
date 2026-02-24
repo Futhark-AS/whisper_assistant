@@ -22,63 +22,63 @@
 - `misc/pyannote-diarization/diarization.py` - Optional diarization utility.
 - `misc/pyannote-diarization/pyproject.toml` - Diarization tool Python config.
 - `misc/pyannote-diarization/uv.lock` - Diarization tool lockfile.
-- `src/whisper_assistant/__init__.py` - Python package metadata.
-- `src/whisper_assistant/cli.py` - Python CLI entrypoint.
-- `src/whisper_assistant/env.py` - Python config validation and parsing.
-- `src/whisper_assistant/log_config.py` - Python logging setup.
-- `src/whisper_assistant/main.py` - Python runtime orchestration.
-- `src/whisper_assistant/paths.py` - Python path helpers.
-- `src/whisper_assistant/permissions.py` - Python permission checks.
-- `src/whisper_assistant/packages/__init__.py` - Python package namespace.
-- `src/whisper_assistant/packages/audio_recorder/__init__.py` - Python recorder package marker.
-- `src/whisper_assistant/packages/audio_recorder/main.py` - Python audio recording implementation.
-- `src/whisper_assistant/packages/keyboard_listener/__init__.py` - Python keyboard package marker.
-- `src/whisper_assistant/packages/keyboard_listener/main.py` - Python hotkey listener implementation.
-- `src/whisper_assistant/packages/notifications/__init__.py` - Python notifications package marker.
-- `src/whisper_assistant/packages/notifications/main.py` - Python notification/sound implementation.
-- `src/whisper_assistant/packages/transcriber/__init__.py` - Python transcriber package marker.
-- `src/whisper_assistant/packages/transcriber/main.py` - Python provider/chunking/transcription implementation.
+- `src/quedo/__init__.py` - Python package metadata.
+- `src/quedo/cli.py` - Python CLI entrypoint.
+- `src/quedo/env.py` - Python config validation and parsing.
+- `src/quedo/log_config.py` - Python logging setup.
+- `src/quedo/main.py` - Python runtime orchestration.
+- `src/quedo/paths.py` - Python path helpers.
+- `src/quedo/permissions.py` - Python permission checks.
+- `src/quedo/packages/__init__.py` - Python package namespace.
+- `src/quedo/packages/audio_recorder/__init__.py` - Python recorder package marker.
+- `src/quedo/packages/audio_recorder/main.py` - Python audio recording implementation.
+- `src/quedo/packages/keyboard_listener/__init__.py` - Python keyboard package marker.
+- `src/quedo/packages/keyboard_listener/main.py` - Python hotkey listener implementation.
+- `src/quedo/packages/notifications/__init__.py` - Python notifications package marker.
+- `src/quedo/packages/notifications/main.py` - Python notification/sound implementation.
+- `src/quedo/packages/transcriber/__init__.py` - Python transcriber package marker.
+- `src/quedo/packages/transcriber/main.py` - Python provider/chunking/transcription implementation.
 - `macos/Package.swift` - Swift Package manifest for core, app, and CLI targets.
-- `macos/Sources/WhisperAssistant/main.swift` - App entrypoint bootstrapping `NSApplication`.
-- `macos/Sources/WhisperAssistant/AppDelegate.swift` - Service wiring, windows, Sparkle bootstrap, login-item registration.
-- `macos/Sources/WhisperAssistant/AppController.swift` - Lifecycle coordinator actor connecting hotkey/audio/transcription/output/history.
-- `macos/Sources/WhisperAssistant/MenuBarController.swift` - `NSStatusItem` icon/menu UI and action dispatch.
-- `macos/Sources/WhisperAssistant/OnboardingCoordinator.swift` - First-run checks (hotkey presence, loopback check, provider connectivity).
-- `macos/Sources/WhisperAssistant/PreferencesView.swift` - SwiftUI preferences UI + save/load VM.
-- `macos/Sources/WhisperAssistant/HistoryView.swift` - SwiftUI session history view.
-- `macos/Sources/WhisperAssistantCLI/main.swift` - CLI executable (`wa`) commands.
-- `macos/Sources/WhisperAssistantCore/CoreTypes.swift` - Shared enums/data models/settings schemas.
-- `macos/Sources/WhisperAssistantCore/StateMachine.swift` - Authoritative `AppPhase` state machine and UI contract mapping.
-- `macos/Sources/WhisperAssistantCore/ConfigurationManager.swift` - UserDefaults + Keychain config/secrets + validation.
-- `macos/Sources/WhisperAssistantCore/Logging.swift` - OSLog + rotating JSONL log mirror.
-- `macos/Sources/WhisperAssistantCore/PermissionCoordinator.swift` - Mic/accessibility/input-monitoring checks and settings deep links.
-- `macos/Sources/WhisperAssistantCore/AudioCaptureEngine.swift` - AVAudioEngine capture with retry and watchdog logic.
-- `macos/Sources/WhisperAssistantCore/HotkeyManager.swift` - Carbon `RegisterEventHotKey` registration and callbacks.
-- `macos/Sources/WhisperAssistantCore/TranscriptionPipeline.swift` - Provider orchestration, retries, fallback cooldown/reprobe, cleanup.
-- `macos/Sources/WhisperAssistantCore/OutputRouter.swift` - Clipboard and synthetic Cmd+V output routing.
-- `macos/Sources/WhisperAssistantCore/HistoryStore.swift` - SQLite persistence + legacy Python history migration.
-- `macos/Sources/WhisperAssistantCore/DiagnosticsCenter.swift` - Structured events, metrics, recovery budget, diagnostics export.
-- `macos/Sources/WhisperAssistantCore/Providers/TranscriptionProvider.swift` - Provider protocol + request/response/error contracts.
-- `macos/Sources/WhisperAssistantCore/Providers/MultipartFormData.swift` - Multipart body builder utility.
-- `macos/Sources/WhisperAssistantCore/Providers/GroqProvider.swift` - Groq HTTP transcription/health implementation.
-- `macos/Sources/WhisperAssistantCore/Providers/OpenAIProvider.swift` - OpenAI HTTP transcription/health implementation.
-- `macos/Tests/WhisperAssistantCoreTests/StateMachineTests.swift` - State transition and UI contract tests.
-- `macos/Tests/WhisperAssistantCoreTests/ConfigurationTests.swift` - Config defaults/validation/save-load tests.
-- `macos/Tests/WhisperAssistantCoreTests/HistoryStoreTests.swift` - SQLite write/list smoke test.
-- `macos/Tests/WhisperAssistantCoreTests/TranscriptionPipelineTests.swift` - Pipeline fallback and cleanup tests.
+- `macos/Sources/Quedo/main.swift` - App entrypoint bootstrapping `NSApplication`.
+- `macos/Sources/Quedo/AppDelegate.swift` - Service wiring, windows, Sparkle bootstrap, login-item registration.
+- `macos/Sources/Quedo/AppController.swift` - Lifecycle coordinator actor connecting hotkey/audio/transcription/output/history.
+- `macos/Sources/Quedo/MenuBarController.swift` - `NSStatusItem` icon/menu UI and action dispatch.
+- `macos/Sources/Quedo/OnboardingCoordinator.swift` - First-run checks (hotkey presence, loopback check, provider connectivity).
+- `macos/Sources/Quedo/PreferencesView.swift` - SwiftUI preferences UI + save/load VM.
+- `macos/Sources/Quedo/HistoryView.swift` - SwiftUI session history view.
+- `macos/Sources/QuedoCLI/main.swift` - CLI executable (`quedo-cli`) commands.
+- `macos/Sources/QuedoCore/CoreTypes.swift` - Shared enums/data models/settings schemas.
+- `macos/Sources/QuedoCore/StateMachine.swift` - Authoritative `AppPhase` state machine and UI contract mapping.
+- `macos/Sources/QuedoCore/ConfigurationManager.swift` - UserDefaults + Keychain config/secrets + validation.
+- `macos/Sources/QuedoCore/Logging.swift` - OSLog + rotating JSONL log mirror.
+- `macos/Sources/QuedoCore/PermissionCoordinator.swift` - Mic/accessibility/input-monitoring checks and settings deep links.
+- `macos/Sources/QuedoCore/AudioCaptureEngine.swift` - AVAudioEngine capture with retry and watchdog logic.
+- `macos/Sources/QuedoCore/HotkeyManager.swift` - Carbon `RegisterEventHotKey` registration and callbacks.
+- `macos/Sources/QuedoCore/TranscriptionPipeline.swift` - Provider orchestration, retries, fallback cooldown/reprobe, cleanup.
+- `macos/Sources/QuedoCore/OutputRouter.swift` - Clipboard and synthetic Cmd+V output routing.
+- `macos/Sources/QuedoCore/HistoryStore.swift` - SQLite persistence + legacy Python history migration.
+- `macos/Sources/QuedoCore/DiagnosticsCenter.swift` - Structured events, metrics, recovery budget, diagnostics export.
+- `macos/Sources/QuedoCore/Providers/TranscriptionProvider.swift` - Provider protocol + request/response/error contracts.
+- `macos/Sources/QuedoCore/Providers/MultipartFormData.swift` - Multipart body builder utility.
+- `macos/Sources/QuedoCore/Providers/GroqProvider.swift` - Groq HTTP transcription/health implementation.
+- `macos/Sources/QuedoCore/Providers/OpenAIProvider.swift` - OpenAI HTTP transcription/health implementation.
+- `macos/Tests/QuedoCoreTests/StateMachineTests.swift` - State transition and UI contract tests.
+- `macos/Tests/QuedoCoreTests/ConfigurationTests.swift` - Config defaults/validation/save-load tests.
+- `macos/Tests/QuedoCoreTests/HistoryStoreTests.swift` - SQLite write/list smoke test.
+- `macos/Tests/QuedoCoreTests/TranscriptionPipelineTests.swift` - Pipeline fallback and cleanup tests.
 
 ### SPM Organization
 
 `macos/Package.swift` defines:
 - Products:
-  - `WhisperAssistantCore` (library)
-  - `WhisperAssistant` (executable app target)
-  - `wa` (CLI executable)
+  - `QuedoCore` (library)
+  - `Quedo` (executable app target)
+  - `quedo-cli` (CLI executable)
 - Targets:
-  - `WhisperAssistantCore` (core logic, links `sqlite3`)
-  - `WhisperAssistant` (AppKit/SwiftUI app, depends on core + Sparkle)
-  - `WhisperAssistantCLI` (ArgumentParser CLI, depends on core)
-  - `WhisperAssistantCoreTests`
+  - `QuedoCore` (core logic, links `sqlite3`)
+  - `Quedo` (AppKit/SwiftUI app, depends on core + Sparkle)
+  - `QuedoCLI` (ArgumentParser CLI, depends on core)
+  - `QuedoCoreTests`
 - Dependencies:
   - `swift-argument-parser`
   - `Sparkle`
@@ -123,42 +123,42 @@
 
 ### App Layer Files
 
-- `macos/Sources/WhisperAssistant/main.swift`: Complete app process entrypoint.
-- `macos/Sources/WhisperAssistant/AppDelegate.swift`: Largely complete bootstrap/wiring, including Sparkle controller init and login-item registration trigger.
-- `macos/Sources/WhisperAssistant/AppController.swift`: Core workflow implemented (start/stop/retry/cancel, save history, transition phases). Completeness: medium; behavior exists but not validated on device.
-- `macos/Sources/WhisperAssistant/MenuBarController.swift`: Deterministic menu rendering and action dispatch present. Completeness: medium-high.
-- `macos/Sources/WhisperAssistant/OnboardingCoordinator.swift`: Reliability gates implemented in simplified form. Completeness: medium (logic exists but not full UX/remediation loops from spec).
-- `macos/Sources/WhisperAssistant/PreferencesView.swift`: Preferences UI and validation save path implemented. Completeness: medium.
-- `macos/Sources/WhisperAssistant/HistoryView.swift`: History list UI with refresh implemented. Completeness: medium.
+- `macos/Sources/Quedo/main.swift`: Complete app process entrypoint.
+- `macos/Sources/Quedo/AppDelegate.swift`: Largely complete bootstrap/wiring, including Sparkle controller init and login-item registration trigger.
+- `macos/Sources/Quedo/AppController.swift`: Core workflow implemented (start/stop/retry/cancel, save history, transition phases). Completeness: medium; behavior exists but not validated on device.
+- `macos/Sources/Quedo/MenuBarController.swift`: Deterministic menu rendering and action dispatch present. Completeness: medium-high.
+- `macos/Sources/Quedo/OnboardingCoordinator.swift`: Reliability gates implemented in simplified form. Completeness: medium (logic exists but not full UX/remediation loops from spec).
+- `macos/Sources/Quedo/PreferencesView.swift`: Preferences UI and validation save path implemented. Completeness: medium.
+- `macos/Sources/Quedo/HistoryView.swift`: History list UI with refresh implemented. Completeness: medium.
 
 ### CLI File
 
-- `macos/Sources/WhisperAssistantCLI/main.swift`: Commands implemented for `start`, `stop`, `status`, `logs`, `doctor`, `config show`, `history list/play/transcribe`, `transcribe <file>`. Completeness: medium-high for v1 parity subset.
+- `macos/Sources/QuedoCLI/main.swift`: Commands implemented for `start`, `stop`, `status`, `logs`, `doctor`, `config show`, `history list/play/transcribe`, `transcribe <file>`. Completeness: medium-high for v1 parity subset.
 
 ### Core Files
 
-- `macos/Sources/WhisperAssistantCore/CoreTypes.swift`: Complete shared type model and defaults.
-- `macos/Sources/WhisperAssistantCore/StateMachine.swift`: Complete deterministic state machine + UI contract mapping.
-- `macos/Sources/WhisperAssistantCore/ConfigurationManager.swift`: Complete settings load/save/validate + keychain helpers.
-- `macos/Sources/WhisperAssistantCore/Logging.swift`: Complete OSLog + size-based rotating file logger.
-- `macos/Sources/WhisperAssistantCore/PermissionCoordinator.swift`: Permission checks and settings deep links implemented.
-- `macos/Sources/WhisperAssistantCore/AudioCaptureEngine.swift`: AVAudioEngine capture path and watchdog/retry skeleton implemented.
-- `macos/Sources/WhisperAssistantCore/HotkeyManager.swift`: Carbon registration and callback dispatch implemented.
-- `macos/Sources/WhisperAssistantCore/TranscriptionPipeline.swift`: Primary retry, fallback attempt, 30s sticky fallback and 60s reprobe implemented.
-- `macos/Sources/WhisperAssistantCore/OutputRouter.swift`: Clipboard + synthetic paste implementation.
-- `macos/Sources/WhisperAssistantCore/HistoryStore.swift`: SQLite schema, save/list/event persistence, legacy folder migration implemented.
-- `macos/Sources/WhisperAssistantCore/DiagnosticsCenter.swift`: Event recording, metric tracking, recovery budget, diagnostics zip export implemented.
-- `macos/Sources/WhisperAssistantCore/Providers/TranscriptionProvider.swift`: Complete protocol/contract file.
-- `macos/Sources/WhisperAssistantCore/Providers/MultipartFormData.swift`: Utility complete.
-- `macos/Sources/WhisperAssistantCore/Providers/GroqProvider.swift`: Provider HTTP path implemented.
-- `macos/Sources/WhisperAssistantCore/Providers/OpenAIProvider.swift`: Provider HTTP path implemented.
+- `macos/Sources/QuedoCore/CoreTypes.swift`: Complete shared type model and defaults.
+- `macos/Sources/QuedoCore/StateMachine.swift`: Complete deterministic state machine + UI contract mapping.
+- `macos/Sources/QuedoCore/ConfigurationManager.swift`: Complete settings load/save/validate + keychain helpers.
+- `macos/Sources/QuedoCore/Logging.swift`: Complete OSLog + size-based rotating file logger.
+- `macos/Sources/QuedoCore/PermissionCoordinator.swift`: Permission checks and settings deep links implemented.
+- `macos/Sources/QuedoCore/AudioCaptureEngine.swift`: AVAudioEngine capture path and watchdog/retry skeleton implemented.
+- `macos/Sources/QuedoCore/HotkeyManager.swift`: Carbon registration and callback dispatch implemented.
+- `macos/Sources/QuedoCore/TranscriptionPipeline.swift`: Primary retry, fallback attempt, 30s sticky fallback and 60s reprobe implemented.
+- `macos/Sources/QuedoCore/OutputRouter.swift`: Clipboard + synthetic paste implementation.
+- `macos/Sources/QuedoCore/HistoryStore.swift`: SQLite schema, save/list/event persistence, legacy folder migration implemented.
+- `macos/Sources/QuedoCore/DiagnosticsCenter.swift`: Event recording, metric tracking, recovery budget, diagnostics zip export implemented.
+- `macos/Sources/QuedoCore/Providers/TranscriptionProvider.swift`: Complete protocol/contract file.
+- `macos/Sources/QuedoCore/Providers/MultipartFormData.swift`: Utility complete.
+- `macos/Sources/QuedoCore/Providers/GroqProvider.swift`: Provider HTTP path implemented.
+- `macos/Sources/QuedoCore/Providers/OpenAIProvider.swift`: Provider HTTP path implemented.
 
 ### Tests
 
-- `macos/Tests/WhisperAssistantCoreTests/StateMachineTests.swift`: Transition guards and UI contract assertions.
-- `macos/Tests/WhisperAssistantCoreTests/ConfigurationTests.swift`: Defaults, validation aggregation, save/load.
-- `macos/Tests/WhisperAssistantCoreTests/HistoryStoreTests.swift`: Session persistence smoke test.
-- `macos/Tests/WhisperAssistantCoreTests/TranscriptionPipelineTests.swift`: Fallback behavior and cleanup rules.
+- `macos/Tests/QuedoCoreTests/StateMachineTests.swift`: Transition guards and UI contract assertions.
+- `macos/Tests/QuedoCoreTests/ConfigurationTests.swift`: Defaults, validation aggregation, save/load.
+- `macos/Tests/QuedoCoreTests/HistoryStoreTests.swift`: Session persistence smoke test.
+- `macos/Tests/QuedoCoreTests/TranscriptionPipelineTests.swift`: Fallback behavior and cleanup rules.
 
 ### Assumptions/Shortcuts Due to Linux-Only Environment
 
@@ -236,8 +236,8 @@ swift test
 1. Open Xcode.
 2. `File -> Open...` and select `macos/Package.swift`.
 3. Let dependencies resolve.
-4. Select target `WhisperAssistant` and build.
-5. Select target `WhisperAssistantCLI` if testing CLI executable.
+4. Select target `Quedo` and build.
+5. Select target `QuedoCLI` if testing CLI executable.
 
 ### SPM Dependencies
 
@@ -328,20 +328,20 @@ At minimum:
 8. Verify provider connectivity check passes for at least one provider.
 9. Run one full session and confirm clipboard/paste output.
 10. Open history and verify session persisted.
-11. Run `wa doctor` and `wa status` for operational sanity checks.
+11. Run `quedo-cli doctor` and `quedo-cli status` for operational sanity checks.
 
 ## 9. Key Files to Read First
 
 1. `architecture-v2.md`
 2. `macos/Package.swift`
-3. `macos/Sources/WhisperAssistantCore/StateMachine.swift`
-4. `macos/Sources/WhisperAssistant/AppController.swift`
-5. `macos/Sources/WhisperAssistantCore/AudioCaptureEngine.swift`
-6. `macos/Sources/WhisperAssistantCore/TranscriptionPipeline.swift`
-7. `macos/Sources/WhisperAssistantCore/HistoryStore.swift`
-8. `macos/Sources/WhisperAssistant/AppDelegate.swift`
-9. `macos/Sources/WhisperAssistant/MenuBarController.swift`
-10. `macos/Sources/WhisperAssistantCLI/main.swift`
+3. `macos/Sources/QuedoCore/StateMachine.swift`
+4. `macos/Sources/Quedo/AppController.swift`
+5. `macos/Sources/QuedoCore/AudioCaptureEngine.swift`
+6. `macos/Sources/QuedoCore/TranscriptionPipeline.swift`
+7. `macos/Sources/QuedoCore/HistoryStore.swift`
+8. `macos/Sources/Quedo/AppDelegate.swift`
+9. `macos/Sources/Quedo/MenuBarController.swift`
+10. `macos/Sources/QuedoCLI/main.swift`
 
 ## 10. Reference Documents
 

@@ -18,7 +18,7 @@ Colors:
 ## Asset Catalog Setup (for Mac agent)
 The app icon needs to be set up as an Xcode asset catalog:
 
-1. Create `macos/Sources/WhisperAssistant/Assets.xcassets/AppIcon.appiconset/`
+1. Create `macos/Sources/Quedo/Assets.xcassets/AppIcon.appiconset/`
 2. Generate required sizes from `quedo-app-icon.png`:
    - 16x16, 16x16@2x (32px)
    - 32x32, 32x32@2x (64px)
@@ -37,15 +37,15 @@ Derive a simplified version for NSStatusItem (menu bar):
 
 ## Rename Checklist
 The codebase currently uses "WhisperAssistant" everywhere. Rename to "Quedo":
-- [ ] SPM package name and targets in `Package.swift`
-- [ ] All `WhisperAssistantCore` → `QuedoCore`
-- [ ] All `WhisperAssistant` (app target) → `Quedo`
-- [ ] All `WhisperAssistantCLI` → `QuedoCLI`
-- [ ] Directory names under `Sources/` and `Tests/`
-- [ ] Bundle identifier: `com.futhark.quedo` (or similar)
-- [ ] README, HANDOFF.md references
-- [ ] GitHub release workflow
-- [ ] CLI binary name: `quedo` (not `whisper-assistant`)
+- [x] SPM package name and targets in `Package.swift`
+- [x] All `WhisperAssistantCore` → `QuedoCore`
+- [x] All `WhisperAssistant` (app target) → `Quedo`
+- [x] All `WhisperAssistantCLI` → `QuedoCLI`
+- [x] Directory names under `Sources/` and `Tests/`
+- [x] Bundle identifier: `com.futhark.quedo` (or similar)
+- [x] README, HANDOFF.md references
+- [x] GitHub release workflow
+- [x] CLI binary name: `quedo` (not `whisper-assistant`)
 
 ## Domain
 `quedo.app` — likely available (not registered as of 2026-02-24)

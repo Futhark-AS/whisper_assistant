@@ -14,7 +14,7 @@ patch:
         return f"{major}.{minor}.{patch}"
     
     pyproject = Path("pyproject.toml")
-    init = Path("src/whisper_assistant/__init__.py")
+    init = Path("src/quedo/__init__.py")
     
     # Get current version
     content = pyproject.read_text()
@@ -41,7 +41,7 @@ minor:
         return f"{major}.{minor}.{patch}"
     
     pyproject = Path("pyproject.toml")
-    init = Path("src/whisper_assistant/__init__.py")
+    init = Path("src/quedo/__init__.py")
     
     content = pyproject.read_text()
     match = re.search(r'version = "(.+?)"', content)
@@ -66,7 +66,7 @@ major:
         return f"{major}.{minor}.{patch}"
     
     pyproject = Path("pyproject.toml")
-    init = Path("src/whisper_assistant/__init__.py")
+    init = Path("src/quedo/__init__.py")
     
     content = pyproject.read_text()
     match = re.search(r'version = "(.+?)"', content)

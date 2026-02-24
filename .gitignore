@@ -169,4 +169,4 @@ cython_debug/
 
 *.wav
 
-whisper_assistant.pid
+quedo.pid
