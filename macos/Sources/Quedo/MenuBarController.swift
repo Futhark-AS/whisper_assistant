@@ -69,7 +69,6 @@ final class MenuBarController: NSObject {
             statusItem.button?.image = image
             statusItem.button?.title = ""
         }
-        NSSound(named: NSSound.Name("Hero"))?.play()
 
         let workItem = DispatchWorkItem { [weak self] in
             guard

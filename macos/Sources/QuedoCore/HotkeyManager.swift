@@ -28,13 +28,15 @@ public final class HotkeyManager: @unchecked Sendable {
     private var monitoredBindings: [MonitoredHotkey: String] = [:]
     private var modifierOnlyCombos: Set<MonitoredHotkey> = []
     private var registeredBindings: [HotkeyBinding] = []
-    private var onHotkey: (@Sendable (String) -> Void)?
+    private var onHotkey: (@Sendable (String, HotkeyEvent) -> Void)?
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var globalKeyUpMonitor: Any?
+    private var localKeyUpMonitor: Any?
     private var globalFlagsMonitor: Any?
     private var localFlagsMonitor: Any?
     private var activeModifierOnlyCombos: Set<MonitoredHotkey> = []
-    private var lastDispatchByMonitoredHotkey: [MonitoredHotkey: Date] = [:]
+    private var lastDispatchByMonitoredHotkeyEvent: [String: Date] = [:]
     private let lock = NSLock()
     private var wakeObserver: NSObjectProtocol?
 
@@ -57,7 +59,10 @@ public final class HotkeyManager: @unchecked Sendable {
     }
 
     /// Activates hotkey bindings with bounded retry.
-    public func setBindings(_ bindings: [HotkeyBinding], handler: @escaping @Sendable (String) -> Void) async throws {
+    public func setBindings(
+        _ bindings: [HotkeyBinding],
+        handler: @escaping @Sendable (String, HotkeyEvent) -> Void
+    ) async throws {
         updateBindingsSnapshot(bindings: bindings, handler: handler)
         logDebug("set_bindings count=\(bindings.count) bindings=\(bindings.map(describe).joined(separator: ","))")
 
@@ -97,7 +102,10 @@ public final class HotkeyManager: @unchecked Sendable {
     }
 
     private func installEventHandler() throws {
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, event, userData in
@@ -108,8 +116,8 @@ public final class HotkeyManager: @unchecked Sendable {
                 manager.handleHotkeyEvent(event)
                 return noErr
             },
-            1,
-            &eventType,
+            eventTypes.count,
+            &eventTypes,
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             &handlerRef
         )
@@ -179,7 +187,7 @@ public final class HotkeyManager: @unchecked Sendable {
         monitoredBindings.removeAll(keepingCapacity: true)
         modifierOnlyCombos.removeAll(keepingCapacity: true)
         activeModifierOnlyCombos.removeAll(keepingCapacity: true)
-        lastDispatchByMonitoredHotkey.removeAll(keepingCapacity: true)
+        lastDispatchByMonitoredHotkeyEvent.removeAll(keepingCapacity: true)
         lock.unlock()
 
         for ref in refs {
@@ -215,8 +223,10 @@ public final class HotkeyManager: @unchecked Sendable {
             logDebug("carbon_event_unmapped id=\(hotkeyID.id)")
             return
         }
-        logDebug("carbon_dispatch id=\(hotkeyID.id) action=\(action)")
-        handler?(action)
+        let eventKind = GetEventKind(event)
+        let hotkeyEvent: HotkeyEvent = (eventKind == UInt32(kEventHotKeyReleased)) ? .released : .pressed
+        logDebug("carbon_dispatch id=\(hotkeyID.id) action=\(action) edge=\(hotkeyEvent.rawValue)")
+        handler?(action, hotkeyEvent)
     }
 
     private func handleMonitoredKeyDownEvent(_ event: NSEvent) {
@@ -231,12 +241,29 @@ public final class HotkeyManager: @unchecked Sendable {
         guard combo.keyCode != HotkeyBinding.modifiersOnlyKeyCode else {
             return
         }
-        let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo)
+        let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo, event: .pressed)
         guard shouldDispatch, let action else {
             return
         }
         logDebug("monitored_keydown_dispatch combo=\(describe(combo)) action=\(action)")
-        handler?(action)
+        handler?(action, .pressed)
+    }
+
+    private func handleMonitoredKeyUpEvent(_ event: NSEvent) {
+        let combo = MonitoredHotkey(
+            keyCode: UInt32(event.keyCode),
+            modifiers: normalizedModifiers(hotkeyModifiers(from: event.modifierFlags))
+        )
+        guard combo.keyCode != HotkeyBinding.modifiersOnlyKeyCode else {
+            return
+        }
+
+        let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo, event: .released)
+        guard shouldDispatch, let action else {
+            return
+        }
+        logDebug("monitored_keyup_dispatch combo=\(describe(combo)) action=\(action)")
+        handler?(action, .released)
     }
 
     private func handleMonitoredFlagsChangedEvent(_ event: NSEvent) {
@@ -250,19 +277,32 @@ public final class HotkeyManager: @unchecked Sendable {
                     continue
                 }
 
-                let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo)
+                let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo, event: .pressed)
                 guard shouldDispatch, let action else {
                     continue
                 }
                 logDebug("monitored_modifiers_dispatch combo=\(describe(combo)) action=\(action)")
-                handler?(action)
+                handler?(action, .pressed)
             } else {
-                markModifierOnlyComboExited(combo)
+                let shouldDispatchOnEdge = markModifierOnlyComboExited(combo)
+                guard shouldDispatchOnEdge else {
+                    continue
+                }
+
+                let (action, handler, shouldDispatch) = currentMonitoredActionAndHandler(for: combo, event: .released)
+                guard shouldDispatch, let action else {
+                    continue
+                }
+                logDebug("monitored_modifiers_release combo=\(describe(combo)) action=\(action)")
+                handler?(action, .released)
             }
         }
     }
 
-    private func updateBindingsSnapshot(bindings: [HotkeyBinding], handler: @escaping @Sendable (String) -> Void) {
+    private func updateBindingsSnapshot(
+        bindings: [HotkeyBinding],
+        handler: @escaping @Sendable (String, HotkeyEvent) -> Void
+    ) {
         lock.lock()
         defer { lock.unlock() }
         self.registeredBindings = bindings
@@ -275,15 +315,16 @@ public final class HotkeyManager: @unchecked Sendable {
         return registeredBindings
     }
 
-    private func currentActionAndHandler(for hotkeyID: UInt32) -> (String?, (@Sendable (String) -> Void)?) {
+    private func currentActionAndHandler(for hotkeyID: UInt32) -> (String?, (@Sendable (String, HotkeyEvent) -> Void)?) {
         lock.lock()
         defer { lock.unlock() }
         return (actionByID[hotkeyID], onHotkey)
     }
 
     private func currentMonitoredActionAndHandler(
-        for combo: MonitoredHotkey
-    ) -> (String?, (@Sendable (String) -> Void)?, Bool) {
+        for combo: MonitoredHotkey,
+        event: HotkeyEvent
+    ) -> (String?, (@Sendable (String, HotkeyEvent) -> Void)?, Bool) {
         lock.lock()
         defer { lock.unlock() }
 
@@ -292,10 +333,11 @@ public final class HotkeyManager: @unchecked Sendable {
         }
 
         let now = Date()
-        if let previous = lastDispatchByMonitoredHotkey[combo], now.timeIntervalSince(previous) < 0.20 {
+        let dispatchKey = "\(combo.keyCode):\(combo.modifiers.rawValue):\(event.rawValue)"
+        if let previous = lastDispatchByMonitoredHotkeyEvent[dispatchKey], now.timeIntervalSince(previous) < 0.20 {
             return (nil, onHotkey, false)
         }
-        lastDispatchByMonitoredHotkey[combo] = now
+        lastDispatchByMonitoredHotkeyEvent[dispatchKey] = now
         return (action, onHotkey, true)
     }
 
@@ -315,10 +357,10 @@ public final class HotkeyManager: @unchecked Sendable {
         return true
     }
 
-    private func markModifierOnlyComboExited(_ combo: MonitoredHotkey) {
+    private func markModifierOnlyComboExited(_ combo: MonitoredHotkey) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        activeModifierOnlyCombos.remove(combo)
+        return activeModifierOnlyCombos.remove(combo) != nil
     }
 
     private func carbonModifiers(from modifiers: HotkeyModifiers) -> UInt32 {
@@ -389,7 +431,7 @@ public final class HotkeyManager: @unchecked Sendable {
             monitoredBindings.removeAll(keepingCapacity: true)
             modifierOnlyCombos.removeAll(keepingCapacity: true)
             activeModifierOnlyCombos.removeAll(keepingCapacity: true)
-            lastDispatchByMonitoredHotkey.removeAll(keepingCapacity: true)
+            lastDispatchByMonitoredHotkeyEvent.removeAll(keepingCapacity: true)
             lock.unlock()
             removeEventMonitors()
             logDebug("event_monitors_removed")
@@ -409,7 +451,7 @@ public final class HotkeyManager: @unchecked Sendable {
         monitoredBindings = mapped
         modifierOnlyCombos = Set(mapped.keys.filter { $0.keyCode == HotkeyBinding.modifiersOnlyKeyCode })
         activeModifierOnlyCombos.removeAll(keepingCapacity: true)
-        lastDispatchByMonitoredHotkey.removeAll(keepingCapacity: true)
+        lastDispatchByMonitoredHotkeyEvent.removeAll(keepingCapacity: true)
         lock.unlock()
 
         installEventMonitorsIfNeeded()
@@ -429,6 +471,17 @@ public final class HotkeyManager: @unchecked Sendable {
             if self.localMonitor == nil {
                 self.localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                     self?.handleMonitoredKeyDownEvent(event)
+                    return event
+                }
+            }
+            if self.globalKeyUpMonitor == nil {
+                self.globalKeyUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                    self?.handleMonitoredKeyUpEvent(event)
+                }
+            }
+            if self.localKeyUpMonitor == nil {
+                self.localKeyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+                    self?.handleMonitoredKeyUpEvent(event)
                     return event
                 }
             }
@@ -464,6 +517,14 @@ public final class HotkeyManager: @unchecked Sendable {
             if let localMonitor {
                 NSEvent.removeMonitor(localMonitor)
                 self.localMonitor = nil
+            }
+            if let globalKeyUpMonitor {
+                NSEvent.removeMonitor(globalKeyUpMonitor)
+                self.globalKeyUpMonitor = nil
+            }
+            if let localKeyUpMonitor {
+                NSEvent.removeMonitor(localKeyUpMonitor)
+                self.localKeyUpMonitor = nil
             }
             if let globalFlagsMonitor {
                 NSEvent.removeMonitor(globalFlagsMonitor)

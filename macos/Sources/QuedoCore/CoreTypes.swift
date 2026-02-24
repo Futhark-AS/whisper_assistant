@@ -48,6 +48,71 @@ public enum RecordingInteractionMode: String, Codable, Sendable, CaseIterable {
     case hold
 }
 
+/// Edge phase for a global hotkey event.
+public enum HotkeyEvent: String, Sendable {
+    /// Shortcut became active.
+    case pressed
+    /// Shortcut became inactive.
+    case released
+}
+
+/// Recording command derived from a toggle action hotkey event.
+public enum ToggleHotkeyCommand: String, Sendable, Equatable {
+    /// No-op for current state.
+    case none
+    /// Start a new recording session.
+    case start
+    /// Stop active recording and process output.
+    case stop
+    /// Cancel arming when recording has not begun yet.
+    case cancelArming
+}
+
+/// Decision helper for routing toggle hotkey actions in toggle/hold interaction modes.
+public enum HotkeyRouting {
+    /// Computes the command for a toggle hotkey event and current lifecycle state.
+    public static func toggleCommand(
+        mode: RecordingInteractionMode,
+        event: HotkeyEvent,
+        phase: AppPhase,
+        isRecording: Bool,
+        hasActiveSession: Bool
+    ) -> ToggleHotkeyCommand {
+        switch mode {
+        case .toggle:
+            guard event == .pressed else {
+                return .none
+            }
+            if phase == .arming {
+                return .cancelArming
+            }
+            if isRecording {
+                return .stop
+            }
+            if !hasActiveSession, phase == .ready {
+                return .start
+            }
+            return .none
+        case .hold:
+            switch event {
+            case .pressed:
+                if !isRecording, !hasActiveSession, phase == .ready {
+                    return .start
+                }
+                return .none
+            case .released:
+                if phase == .arming {
+                    return .cancelArming
+                }
+                if isRecording {
+                    return .stop
+                }
+                return .none
+            }
+        }
+    }
+}
+
 /// Supported hotkey modifiers.
 public struct HotkeyModifiers: OptionSet, Codable, Sendable, Hashable {
     /// Raw bitmask value.

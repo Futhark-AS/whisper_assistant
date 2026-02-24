@@ -74,34 +74,19 @@ public enum AppAction: String, Sendable, CaseIterable {
     case quit = "Quit"
 }
 
-/// Notification sound cue contract for each phase.
-public enum SoundCue: String, Sendable {
-    /// No cue.
-    case none
-    /// Hero cue.
-    case hero = "Hero"
-    /// Processing cue.
-    case morse = "Morse"
-    /// Error cue.
-    case basso = "Basso"
-}
-
 /// Complete UI contract values for a phase snapshot.
 public struct UIStateContract: Sendable {
     /// Symbolic icon name.
     public let icon: String
     /// Optional status copy.
     public let notificationCopy: String?
-    /// Phase sound cue.
-    public let soundCue: SoundCue
     /// Available actions.
     public let actions: [AppAction]
 
     /// Creates a UI contract value.
-    public init(icon: String, notificationCopy: String?, soundCue: SoundCue, actions: [AppAction]) {
+    public init(icon: String, notificationCopy: String?, actions: [AppAction]) {
         self.icon = icon
         self.notificationCopy = notificationCopy
-        self.soundCue = soundCue
         self.actions = actions
     }
 }
@@ -259,56 +244,48 @@ public actor LifecycleStateMachine {
             return UIStateContract(
                 icon: "mic",
                 notificationCopy: nil,
-                soundCue: .none,
                 actions: [.startRecording, .preferences, .history, .runChecks]
             )
         case .arming:
             return UIStateContract(
                 icon: "mic.circle.badge.clock",
                 notificationCopy: "Preparing microphone...",
-                soundCue: .hero,
                 actions: [.cancel]
             )
         case .recording:
             return UIStateContract(
                 icon: "record.circle",
                 notificationCopy: "Recording. Press shortcut to stop.",
-                soundCue: .none,
                 actions: [.stop, .cancel]
             )
         case .processing:
             return UIStateContract(
                 icon: "waveform",
                 notificationCopy: "Processing audio...",
-                soundCue: .morse,
                 actions: [.cancel]
             )
         case .streamingPartial:
             return UIStateContract(
                 icon: "waveform.badge.plus",
                 notificationCopy: "Transcribing (live)...",
-                soundCue: .none,
                 actions: [.cancel, .copyPartial]
             )
         case .providerFallback:
             return UIStateContract(
                 icon: "arrow.triangle.2.circlepath",
                 notificationCopy: "Primary provider unavailable. Trying fallback...",
-                soundCue: .none,
                 actions: [.cancel]
             )
         case .outputting:
             return UIStateContract(
                 icon: "doc.on.clipboard",
                 notificationCopy: "Sending transcript...",
-                soundCue: .none,
                 actions: []
             )
         case .retryAvailable:
             return UIStateContract(
                 icon: "arrow.clockwise",
                 notificationCopy: "Could not complete. Retry is available.",
-                soundCue: .basso,
                 actions: [.retry, .switchProvider, .viewDiagnostics]
             )
         case .degraded:
@@ -318,42 +295,37 @@ public actor LifecycleStateMachine {
                 return UIStateContract(
                     icon: "shield",
                     notificationCopy: "Permission needed for full functionality.",
-                    soundCue: .none,
                     actions: [.openSettings, .runChecks, .useClipboardOnly]
                 )
             case .noInputDevice:
                 return UIStateContract(
                     icon: "mic.slash",
                     notificationCopy: "No input device detected.",
-                    soundCue: .basso,
                     actions: [.refreshDevices, .selectDevice, .runChecks]
                 )
             case .providerUnavailable:
                 return UIStateContract(
                     icon: "icloud.slash",
                     notificationCopy: "Transcription provider unavailable.",
-                    soundCue: .basso,
                     actions: [.retry, .switchProvider, .openProviderSettings]
                 )
             case .hotkeyFailure:
                 return UIStateContract(
                     icon: "keyboard",
                     notificationCopy: "Hotkey registration failed.",
-                    soundCue: .basso,
                     actions: [.rebindHotkey, .retryRegistration]
                 )
             case .internalError:
                 return UIStateContract(
                     icon: "exclamationmark.triangle",
                     notificationCopy: "Unexpected runtime issue.",
-                    soundCue: .basso,
                     actions: [.viewDiagnostics, .runChecks]
                 )
             }
         case .shuttingDown:
-            return UIStateContract(icon: "circle", notificationCopy: nil, soundCue: .none, actions: [.quit])
+            return UIStateContract(icon: "circle", notificationCopy: nil, actions: [.quit])
         case .booting, .onboarding:
-            return UIStateContract(icon: "hourglass", notificationCopy: nil, soundCue: .none, actions: [])
+            return UIStateContract(icon: "hourglass", notificationCopy: nil, actions: [])
         }
     }
 

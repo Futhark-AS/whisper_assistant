@@ -183,24 +183,42 @@ actor AppControllerActor {
         return "code=\(code)\nphase=\(snapshot.phase.rawValue)\ndegradedReason=\(degraded)\n\n\(mapped)"
     }
 
-    func handleHotkey(actionID: String) async {
-        await diagnostics.recordMetric(MetricPoint(name: "hotkey_trigger_total", value: 1, tags: ["action": actionID]))
+    func handleHotkey(actionID: String, event: HotkeyEvent) async {
+        if event == .pressed {
+            await diagnostics.recordMetric(
+                MetricPoint(name: "hotkey_trigger_total", value: 1, tags: ["action": actionID])
+            )
+        }
         let snapshot = await lifecycle.snapshot()
 
         switch actionID {
         case "toggle":
-            if snapshot.phase == .arming {
-                await cancelFlow()
-            } else if isRecording {
-                await stopRecordingFlow()
-            } else if snapshot.currentSessionID == nil, snapshot.phase == .ready {
+            let command = HotkeyRouting.toggleCommand(
+                mode: settings.recordingInteraction,
+                event: event,
+                phase: snapshot.phase,
+                isRecording: isRecording,
+                hasActiveSession: snapshot.currentSessionID != nil
+            )
+            switch command {
+            case .start:
                 await startRecordingFlow()
-            } else {
+            case .stop:
+                await stopRecordingFlow()
+            case .cancelArming:
+                await cancelFlow()
+            case .none:
                 return
             }
         case "retry":
+            guard event == .pressed else {
+                return
+            }
             await retryFlow()
         case "cancel":
+            guard event == .pressed else {
+                return
+            }
             await cancelFlow()
         default:
             break
@@ -487,9 +505,9 @@ actor AppControllerActor {
     }
 
     private func applyHotkeyBindings() async throws {
-        try await hotkeyManager.setBindings(settings.hotkeys) { [weak self] action in
+        try await hotkeyManager.setBindings(settings.hotkeys) { [weak self] action, event in
             Task {
-                await self?.handleHotkey(actionID: action)
+                await self?.handleHotkey(actionID: action, event: event)
             }
         }
     }
