@@ -66,6 +66,22 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+APP_ZIP="$DIST_DIR/WhisperAssistant.app.zip"
+DMG_PATH="$DIST_DIR/WhisperAssistant.dmg"
+CLI_ZIP="$DIST_DIR/wa-macos.zip"
+ENTITLEMENTS_PATH="$DIST_DIR/WhisperAssistant.entitlements"
+
+cat > "$ENTITLEMENTS_PATH" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
 # Optional signing when identity is available in runner keychain.
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   if [[ -d "$APP_DIR/Contents/Frameworks/Sparkle.framework" ]]; then
@@ -73,7 +89,7 @@ if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
     # must be re-signed with our Developer ID identity for notarization to pass.
     codesign --force --timestamp --options runtime --deep --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
   fi
-  codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
+  codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR/Contents/MacOS/WhisperAssistant"
   codesign --force --timestamp --options runtime --sign "${APPLE_SIGNING_IDENTITY}" "$APP_DIR"
 else
   # Ensure unsigned builds still have a structurally valid bundle signature.
@@ -84,10 +100,6 @@ else
   codesign --force --sign - "$APP_DIR/Contents/MacOS/WhisperAssistant"
   codesign --force --sign - "$APP_DIR"
 fi
-
-APP_ZIP="$DIST_DIR/WhisperAssistant.app.zip"
-DMG_PATH="$DIST_DIR/WhisperAssistant.dmg"
-CLI_ZIP="$DIST_DIR/wa-macos.zip"
 
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$APP_ZIP"
 hdiutil create -volname "WhisperAssistant" -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH" >/dev/null
