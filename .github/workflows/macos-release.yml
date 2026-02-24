@@ -73,6 +73,18 @@ jobs:
           fi
           macos/scripts/package-release.sh
 
+      - name: Validate DMG layout
+        run: |
+          ATTACH_LINE=$(hdiutil attach dist/Quedo.dmg -nobrowse | tail -n 1)
+          MOUNT_POINT=$(printf '%s\n' "$ATTACH_LINE" | awk -F'\t' '{print $3}')
+          DEVICE_NODE=$(printf '%s\n' "$ATTACH_LINE" | awk '{print $1}')
+
+          test -d "$MOUNT_POINT/Quedo.app"
+          test -L "$MOUNT_POINT/Applications"
+          test "$(readlink "$MOUNT_POINT/Applications")" = "/Applications"
+
+          hdiutil detach "$DEVICE_NODE" -quiet
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
