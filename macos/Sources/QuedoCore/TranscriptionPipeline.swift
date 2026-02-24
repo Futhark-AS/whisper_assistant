@@ -159,12 +159,39 @@ public actor TranscriptionPipeline {
                 context: rollingContext,
                 vocabularyHints: vocabularyHints
             )
-            let response = try await provider.transcribe(request: request)
+            let response = try await transcribeChunkWithTimeout(request: request, provider: provider)
             combined.append(response.text)
             rollingContext = String(response.text.suffix(300))
         }
 
         return combined.joined(separator: " ")
+    }
+
+    /// Enforces a hard timeout around provider transcription to prevent indefinite hangs.
+    private func transcribeChunkWithTimeout(
+        request: TranscriptionRequest,
+        provider: any TranscriptionProvider
+    ) async throws -> TranscriptionResponse {
+        let timeoutSeconds = requestTimeoutSeconds
+
+        return try await withThrowingTaskGroup(of: TranscriptionResponse.self) { group in
+            group.addTask {
+                try await provider.transcribe(request: request)
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(Double(timeoutSeconds)))
+                throw ProviderError.timeout
+            }
+
+            defer {
+                group.cancelAll()
+            }
+
+            guard let response = try await group.next() else {
+                throw ProviderError.networkFailure
+            }
+            return response
+        }
     }
 
     private func chunkAudioIfNeeded(_ fileURL: URL) throws -> [URL] {
