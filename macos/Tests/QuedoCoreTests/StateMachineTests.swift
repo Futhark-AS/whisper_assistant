@@ -46,6 +46,58 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(snapshot.phase, .processing)
     }
 
+    func testActivePhasesCanTransitionBackToReady() async throws {
+        let arming = LifecycleStateMachine()
+        try await arming.transition(to: .ready)
+        try await arming.beginSession(id: UUID())
+        try await arming.transition(to: .arming)
+        try await arming.transition(to: .ready)
+        let armingSnapshot = await arming.snapshot()
+        XCTAssertEqual(armingSnapshot.phase, .ready)
+
+        let recording = LifecycleStateMachine()
+        try await recording.transition(to: .ready)
+        try await recording.beginSession(id: UUID())
+        try await recording.transition(to: .arming)
+        try await recording.transition(to: .recording)
+        try await recording.transition(to: .ready)
+        let recordingSnapshot = await recording.snapshot()
+        XCTAssertEqual(recordingSnapshot.phase, .ready)
+
+        let processing = LifecycleStateMachine()
+        try await processing.transition(to: .ready)
+        try await processing.beginSession(id: UUID())
+        try await processing.transition(to: .arming)
+        try await processing.transition(to: .recording)
+        try await processing.transition(to: .processing)
+        try await processing.transition(to: .ready)
+        let processingSnapshot = await processing.snapshot()
+        XCTAssertEqual(processingSnapshot.phase, .ready)
+
+        let fallback = LifecycleStateMachine()
+        try await fallback.transition(to: .ready)
+        try await fallback.beginSession(id: UUID())
+        try await fallback.transition(to: .arming)
+        try await fallback.transition(to: .recording)
+        try await fallback.transition(to: .processing)
+        try await fallback.transition(to: .providerFallback)
+        try await fallback.transition(to: .ready)
+        let fallbackSnapshot = await fallback.snapshot()
+        XCTAssertEqual(fallbackSnapshot.phase, .ready)
+
+        let retry = LifecycleStateMachine()
+        try await retry.transition(to: .ready)
+        try await retry.beginSession(id: UUID())
+        try await retry.transition(to: .arming)
+        try await retry.transition(to: .recording)
+        try await retry.transition(to: .processing)
+        try await retry.transition(to: .providerFallback)
+        try await retry.transition(to: .retryAvailable)
+        try await retry.transition(to: .ready)
+        let retrySnapshot = await retry.snapshot()
+        XCTAssertEqual(retrySnapshot.phase, .ready)
+    }
+
     func testUIContractForPermissionsDegradedState() async {
         let contract = LifecycleStateMachine.uiContract(for: .degraded, degradedReason: .permissions)
         XCTAssertEqual(contract.icon, "shield")

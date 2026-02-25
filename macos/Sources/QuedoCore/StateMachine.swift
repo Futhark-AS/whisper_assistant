@@ -345,17 +345,29 @@ public actor LifecycleStateMachine {
             return true
         case (.arming, .degraded):
             return true
+        case (.arming, .ready):
+            return true
         case (.recording, .processing):
+            return true
+        case (.recording, .ready):
             return true
         case (.processing, .streamingPartial), (.processing, .outputting), (.processing, .providerFallback):
             return true
+        case (.processing, .ready):
+            return true
         case (.streamingPartial, .outputting), (.streamingPartial, .providerFallback):
             return true
+        case (.streamingPartial, .ready):
+            return true
         case (.providerFallback, .outputting), (.providerFallback, .retryAvailable):
+            return true
+        case (.providerFallback, .ready):
             return true
         case (.outputting, .ready), (.outputting, .retryAvailable):
             return true
         case (.retryAvailable, .processing):
+            return true
+        case (.retryAvailable, .ready):
             return true
         case (.degraded, .ready):
             return true
