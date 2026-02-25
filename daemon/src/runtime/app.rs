@@ -5,13 +5,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::bootstrap::{bootstrap_env, AppPaths};
+use crate::capture::devices::list_input_devices;
 use crate::config::AppConfig;
 use crate::controller::events::{ControllerEvent, ControllerOutput};
 use crate::controller::{run_controller_loop, ControllerContext};
 use crate::error::{AppError, AppResult};
 use crate::history::HistoryStore;
 use crate::runtime::topology::RuntimeTopology;
-use crate::ui::{Notifier, UiEvent, UiFrontend};
+use crate::ui::{Notifier, UiFrontend};
 
 pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
     paths.ensure_dirs()?;
@@ -48,6 +49,9 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
     })
     .map_err(|error| AppError::Controller(format!("failed to register ctrl-c handler: {error}")))?;
 
+    #[cfg(not(target_os = "macos"))]
+    spawn_stdin_command_thread(topology.controller_event_tx.clone())?;
+
     let mut last_tick = Instant::now();
     let mut stopping = false;
 
@@ -58,15 +62,10 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
         }
 
         for event in ui.drain_events() {
-            let mapped = match event {
-                UiEvent::Toggle => ControllerEvent::Toggle,
-                UiEvent::RunDoctor => ControllerEvent::RunDoctor,
-                UiEvent::Quit => {
-                    stopping = true;
-                    ControllerEvent::Shutdown
-                }
-            };
-            let _ = topology.controller_event_tx.send(mapped);
+            if matches!(event, ControllerEvent::Shutdown) {
+                stopping = true;
+            }
+            let _ = topology.controller_event_tx.send(event);
         }
 
         if !stopping && shutdown.load(Ordering::SeqCst) {
@@ -95,9 +94,9 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
                     let _ = notifier.notify("Quedo", "Transcript copied to clipboard");
                 }
                 ControllerOutput::Stopped => {
-                    controller_join
-                        .join()
-                        .map_err(|_| AppError::Controller("controller thread panicked".to_owned()))?;
+                    controller_join.join().map_err(|_| {
+                        AppError::Controller("controller thread panicked".to_owned())
+                    })?;
                     return Ok(());
                 }
             }
@@ -107,11 +106,47 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+fn spawn_stdin_command_thread(
+    event_tx: crossbeam_channel::Sender<ControllerEvent>,
+) -> AppResult<()> {
+    thread::Builder::new()
+        .name("quedo-stdin-events".to_owned())
+        .spawn(move || {
+            use std::io::{self, BufRead};
+
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                let Ok(line) = line else {
+                    break;
+                };
+                let command = line.trim().to_ascii_lowercase();
+                let event = match command.as_str() {
+                    "toggle" => Some(ControllerEvent::Toggle),
+                    "doctor" => Some(ControllerEvent::RunDoctor),
+                    "quit" | "exit" => Some(ControllerEvent::Shutdown),
+                    _ => None,
+                };
+
+                if let Some(event) = event {
+                    if event_tx.send(event).is_err() {
+                        break;
+                    }
+                }
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| {
+            AppError::Controller(format!("failed to spawn stdin event thread: {error}"))
+        })
+}
+
 pub fn install_autostart(paths: &AppPaths) -> AppResult<PathBuf> {
     paths.ensure_dirs()?;
 
-    let executable = std::env::current_exe()
-        .map_err(|error| AppError::Install(format!("unable to resolve current executable: {error}")))?;
+    let executable = std::env::current_exe().map_err(|error| {
+        AppError::Install(format!("unable to resolve current executable: {error}"))
+    })?;
 
     if cfg!(target_os = "macos") {
         let plist = format!(
@@ -155,6 +190,12 @@ pub fn status_report(config: &AppConfig, paths: &AppPaths) -> AppResult<String> 
         .unwrap_or_else(|| paths.history_db.clone());
     let history = HistoryStore::new(db_path.clone());
     let recent = history.list_recent_runs(5)?;
+    let latest = history.latest_run()?;
+    let recording_capability = match list_input_devices() {
+        Ok(devices) if !devices.is_empty() => "available".to_owned(),
+        Ok(_) => "unavailable (no input devices)".to_owned(),
+        Err(error) => format!("unavailable ({error})"),
+    };
 
     let mut output = String::new();
     output.push_str("Quedo daemon status\n");
@@ -164,9 +205,10 @@ pub fn status_report(config: &AppConfig, paths: &AppPaths) -> AppResult<String> 
         "  franken_state_dir: {}\n",
         paths.state_dir.display()
     ));
+    output.push_str(&format!("  recording_backend: {recording_capability}\n"));
     output.push_str(&format!("  recent_runs: {}\n", recent.len()));
 
-    if let Some(run) = recent.first() {
+    if let Some(run) = latest {
         output.push_str(&format!(
             "  last_run: {} backend={:?} finished={}\n",
             run.run_id, run.backend, run.finished_at_rfc3339

@@ -2,15 +2,9 @@ pub mod hotkey;
 pub mod notify;
 pub mod tray;
 
+use crate::controller::events::ControllerEvent;
 use crate::controller::state::ControllerState;
 use crate::error::AppResult;
-
-#[derive(Debug, Clone, Copy)]
-pub enum UiEvent {
-    Toggle,
-    RunDoctor,
-    Quit,
-}
 
 pub struct UiFrontend {
     tray: tray::TrayController,
@@ -25,7 +19,7 @@ impl UiFrontend {
         })
     }
 
-    pub fn drain_events(&self) -> Vec<UiEvent> {
+    pub fn drain_events(&self) -> Vec<ControllerEvent> {
         let mut events = self.tray.drain_events();
         events.extend(self.hotkey.drain_events());
         events

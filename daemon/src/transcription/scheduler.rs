@@ -19,11 +19,11 @@ pub struct TranscriptResult {
 }
 
 pub fn run_transcription_job(
+    engine: &FrankenEngine,
     wav_path: PathBuf,
     db_path: PathBuf,
     config: &TranscriptionConfig,
 ) -> AppResult<TranscriptResult> {
-    let engine = FrankenEngine::new()?;
     let request = build_request(wav_path, db_path, config);
     let report = engine.transcribe(request)?;
 

@@ -4,36 +4,37 @@ use chrono::Utc;
 use regex::Regex;
 
 use crate::bootstrap::AppPaths;
+use crate::capture::devices::list_input_devices;
 use crate::config::AppConfig;
 use crate::doctor::report::{CheckResult, CheckStatus, DoctorReport, DoctorState};
 
 pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
-    let mut checks = Vec::new();
-
-    checks.push(check_binary_version(
-        "ffmpeg",
-        "6.0",
-        true,
-        Some("Install ffmpeg via your package manager."),
-    ));
-    checks.push(check_binary_version(
-        "ffprobe",
-        "6.0",
-        true,
-        Some("Install ffmpeg package, which includes ffprobe."),
-    ));
-    checks.push(check_binary_version(
-        "whisper-cli",
-        "1.7.2",
-        true,
-        Some("Install whisper.cpp and ensure whisper-cli is in PATH."),
-    ));
-    checks.push(check_binary_version(
-        "insanely-fast-whisper",
-        "0.0.15",
-        false,
-        Some("Install with pipx install insanely-fast-whisper if you want fallback backend."),
-    ));
+    let mut checks = vec![
+        check_binary_version(
+            "ffmpeg",
+            "6.0",
+            true,
+            Some("Install ffmpeg via your package manager."),
+        ),
+        check_binary_version(
+            "ffprobe",
+            "6.0",
+            true,
+            Some("Install ffmpeg package, which includes ffprobe."),
+        ),
+        check_binary_version(
+            "whisper-cli",
+            "1.7.2",
+            true,
+            Some("Install whisper.cpp and ensure whisper-cli is in PATH."),
+        ),
+        check_binary_version(
+            "insanely-fast-whisper",
+            "0.0.15",
+            false,
+            Some("Install with pipx install insanely-fast-whisper if you want fallback backend."),
+        ),
+    ];
 
     let python_required = config.transcription.diarize;
     checks.push(check_binary_version(
@@ -43,7 +44,10 @@ pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
         Some("Install python3 >= 3.10 for diarization backend support."),
     ));
 
-    checks.push(check_microphone_permission(config.permissions.microphone_required));
+    checks.push(check_microphone_permission(
+        config.permissions.microphone_required,
+    ));
+    checks.push(check_recording_backend_capability());
     checks.extend(check_macos_metal(paths));
 
     let required_failed = checks
@@ -65,6 +69,37 @@ pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
         generated_at_rfc3339: Utc::now().to_rfc3339(),
         state,
         checks,
+    }
+}
+
+fn check_recording_backend_capability() -> CheckResult {
+    match list_input_devices() {
+        Ok(devices) if devices.is_empty() => CheckResult {
+            name: "recording_backend".to_owned(),
+            status: CheckStatus::Warn,
+            detail: "no recording devices discovered".to_owned(),
+            required: true,
+            remediation: Some(
+                "Connect a microphone and verify audio subsystem configuration.".to_owned(),
+            ),
+        },
+        Ok(devices) => CheckResult {
+            name: "recording_backend".to_owned(),
+            status: CheckStatus::Pass,
+            detail: format!("{} device(s) discovered", devices.len()),
+            required: true,
+            remediation: None,
+        },
+        Err(error) => CheckResult {
+            name: "recording_backend".to_owned(),
+            status: CheckStatus::Fail,
+            detail: format!("recording backend unavailable: {error}"),
+            required: true,
+            remediation: Some(
+                "Install/enable `arecord` or `ffmpeg` recording support for Linux capture."
+                    .to_owned(),
+            ),
+        },
     }
 }
 
@@ -183,7 +218,11 @@ fn check_microphone_permission(required: bool) -> CheckResult {
         if which::which("swift").is_err() {
             return CheckResult {
                 name: "microphone_permission".to_owned(),
-                status: if required { CheckStatus::Warn } else { CheckStatus::Skip },
+                status: if required {
+                    CheckStatus::Warn
+                } else {
+                    CheckStatus::Skip
+                },
                 detail: "swift not available to query AVFoundation authorization status".to_owned(),
                 required,
                 remediation: Some("Install Xcode command line tools and rerun doctor.".to_owned()),
@@ -239,7 +278,11 @@ print(status.rawValue)
             }
             Err(error) => CheckResult {
                 name: "microphone_permission".to_owned(),
-                status: if required { CheckStatus::Warn } else { CheckStatus::Skip },
+                status: if required {
+                    CheckStatus::Warn
+                } else {
+                    CheckStatus::Skip
+                },
                 detail: format!("permission probe command failed: {error}"),
                 required,
                 remediation: Some("Verify Swift toolchain availability.".to_owned()),
@@ -388,7 +431,9 @@ fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
             status: CheckStatus::Fail,
             detail: format!("model file not found: {}", model_path.display()),
             required: true,
-            remediation: Some("Set WHISPER_MODEL_PATH to a valid whisper.cpp model file.".to_owned()),
+            remediation: Some(
+                "Set WHISPER_MODEL_PATH to a valid whisper.cpp model file.".to_owned(),
+            ),
         });
         return results;
     }
@@ -469,7 +514,9 @@ fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
                         String::from_utf8_lossy(&output.stderr)
                     ),
                     required: true,
-                    remediation: Some("Run whisper-cli manually to inspect backend logs.".to_owned()),
+                    remediation: Some(
+                        "Run whisper-cli manually to inspect backend logs.".to_owned(),
+                    ),
                 });
                 return results;
             }
@@ -489,10 +536,12 @@ fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
                 results.push(CheckResult {
                     name: "metal_smoke".to_owned(),
                     status: CheckStatus::Warn,
-                    detail: "smoke test passed, but no explicit Metal markers were found".to_owned(),
+                    detail: "smoke test passed, but no explicit Metal markers were found"
+                        .to_owned(),
                     required: true,
                     remediation: Some(
-                        "Run with verbose whisper-cli logging to confirm GPU backend usage.".to_owned(),
+                        "Run with verbose whisper-cli logging to confirm GPU backend usage."
+                            .to_owned(),
                     ),
                 });
             }

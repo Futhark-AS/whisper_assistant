@@ -2,6 +2,7 @@ pub mod events;
 pub mod queue;
 pub mod state;
 
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Instant;
 
@@ -9,19 +10,28 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::bootstrap::AppPaths;
 use crate::capture::{CaptureWatchdogConfig, MicrophoneCapture};
-use crate::config::{AppConfig, OutputMode};
+use crate::config::{AppConfig, OutputMode, TranscriptionConfig};
 use crate::controller::events::{ControllerEvent, ControllerOutput};
 use crate::controller::queue::SingleFlightQueue;
 use crate::controller::state::ControllerState;
 use crate::doctor::run_doctor;
 use crate::error::{AppError, AppResult};
 use crate::output::ClipboardOutput;
-use crate::transcription::run_transcription_job;
+use crate::transcription::{run_transcription_job, FrankenEngine};
 
 #[derive(Debug, Clone)]
 pub struct ControllerContext {
     pub config: AppConfig,
     pub paths: AppPaths,
+}
+
+enum WorkerMessage {
+    Transcribe {
+        wav_path: PathBuf,
+        db_path: PathBuf,
+        config: TranscriptionConfig,
+    },
+    Shutdown,
 }
 
 pub fn run_controller_loop(
@@ -36,6 +46,10 @@ pub fn run_controller_loop(
     let mut recording_started_at: Option<Instant> = None;
 
     let mut queue = SingleFlightQueue::new(1);
+
+    let engine = FrankenEngine::new()?;
+    let (worker_tx, worker_join) =
+        spawn_transcription_worker(engine, event_tx.clone(), output_tx.clone())?;
 
     send_state(&output_tx, &state)?;
 
@@ -56,7 +70,8 @@ pub fn run_controller_loop(
                         ),
                     };
 
-                    match capture.start_recording(&context.paths.cache_dir.join("capture"), watchdog_cfg)
+                    match capture
+                        .start_recording(&context.paths.cache_dir.join("capture"), watchdog_cfg)
                     {
                         Ok(recording) => {
                             active_recording = Some(recording);
@@ -87,11 +102,7 @@ pub fn run_controller_loop(
                                     state = ControllerState::Processing;
                                     send_state(&output_tx, &state)?;
                                     spawn_next_job(
-                                        &context,
-                                        &mut queue,
-                                        &event_tx,
-                                        &output_tx,
-                                        &wav_path,
+                                        &context, &mut queue, &worker_tx, &output_tx, &wav_path,
                                     )?;
                                 }
                             }
@@ -127,9 +138,10 @@ pub fn run_controller_loop(
                             let _ = recording.stop();
                         }
                         recording_started_at = None;
-                        state = ControllerState::Degraded(
-                            "capture watchdog arming timeout exceeded".to_owned(),
-                        );
+                        state = ControllerState::Degraded(format!(
+                            "capture watchdog arming timeout exceeded (first_frame_seen={})",
+                            snapshot.first_frame_seen
+                        ));
                         send_state(&output_tx, &state)?;
                         send_notification(
                             &output_tx,
@@ -140,9 +152,10 @@ pub fn run_controller_loop(
                             let _ = recording.stop();
                         }
                         recording_started_at = None;
-                        state = ControllerState::Degraded(
-                            "capture watchdog stall detected".to_owned(),
-                        );
+                        state = ControllerState::Degraded(format!(
+                            "capture watchdog stall detected (first_frame_seen={})",
+                            snapshot.first_frame_seen
+                        ));
                         send_state(&output_tx, &state)?;
                         send_notification(
                             &output_tx,
@@ -154,21 +167,25 @@ pub fn run_controller_loop(
                 if let (Some(started_at), Some(recording)) =
                     (recording_started_at.as_ref(), active_recording.take())
                 {
-                    if started_at.elapsed().as_secs() > context.config.audio.max_recording_seconds as u64
+                    if started_at.elapsed().as_secs()
+                        > context.config.audio.max_recording_seconds as u64
                     {
                         recording_started_at = None;
                         match recording.stop() {
                             Ok(wav_path) => {
-                                let _ = queue.enqueue(wav_path.clone());
-                                state = ControllerState::Processing;
-                                send_state(&output_tx, &state)?;
-                                spawn_next_job(
-                                    &context,
-                                    &mut queue,
-                                    &event_tx,
-                                    &output_tx,
-                                    &wav_path,
-                                )?;
+                                if let Err(error) = queue.enqueue(wav_path.clone()) {
+                                    let detail =
+                                        format!("unable to enqueue timed recording stop: {error}");
+                                    state = ControllerState::Degraded(detail.clone());
+                                    send_state(&output_tx, &state)?;
+                                    send_notification(&output_tx, &detail)?;
+                                } else {
+                                    state = ControllerState::Processing;
+                                    send_state(&output_tx, &state)?;
+                                    spawn_next_job(
+                                        &context, &mut queue, &worker_tx, &output_tx, &wav_path,
+                                    )?;
+                                }
                             }
                             Err(error) => {
                                 let detail = format!("failed to finalize timed recording: {error}");
@@ -187,7 +204,10 @@ pub fn run_controller_loop(
 
                 if !context.config.audio.retain_audio && wav_path.exists() {
                     if let Err(error) = std::fs::remove_file(&wav_path) {
-                        tracing::warn!("failed to remove capture artifact {}: {error}", wav_path.display());
+                        tracing::warn!(
+                            "failed to remove capture artifact {}: {error}",
+                            wav_path.display()
+                        );
                     }
                 }
 
@@ -226,21 +246,67 @@ pub fn run_controller_loop(
                 if let Some(recording) = active_recording.take() {
                     let _ = recording.stop();
                 }
-                output_tx
-                    .send(ControllerOutput::Stopped)
-                    .map_err(|_| AppError::ChannelClosed("controller output channel closed".to_owned()))?;
+
+                let _ = worker_tx.send(WorkerMessage::Shutdown);
+                let _ = worker_join.join();
+
+                output_tx.send(ControllerOutput::Stopped).map_err(|_| {
+                    AppError::ChannelClosed("controller output channel closed".to_owned())
+                })?;
                 return Ok(());
             }
         }
     }
 }
 
+fn spawn_transcription_worker(
+    engine: FrankenEngine,
+    event_tx: Sender<ControllerEvent>,
+    output_tx: Sender<ControllerOutput>,
+) -> AppResult<(Sender<WorkerMessage>, thread::JoinHandle<()>)> {
+    let (worker_tx, worker_rx) = crossbeam_channel::unbounded::<WorkerMessage>();
+
+    let join_handle = thread::Builder::new()
+        .name("quedo-transcription-worker".to_owned())
+        .spawn(move || {
+            while let Ok(message) = worker_rx.recv() {
+                match message {
+                    WorkerMessage::Transcribe {
+                        wav_path,
+                        db_path,
+                        config,
+                    } => {
+                        let result = run_transcription_job(&engine, wav_path.clone(), db_path, &config)
+                            .map_err(|error| error.to_string());
+
+                        if event_tx
+                            .send(ControllerEvent::TranscriptionFinished { wav_path, result })
+                            .is_err()
+                        {
+                            let _ = output_tx.send(ControllerOutput::Notification(
+                                "controller stopped before transcription completion could be delivered"
+                                    .to_owned(),
+                            ));
+                            break;
+                        }
+                    }
+                    WorkerMessage::Shutdown => break,
+                }
+            }
+        })
+        .map_err(|error| {
+            AppError::Controller(format!("failed to spawn transcription worker: {error}"))
+        })?;
+
+    Ok((worker_tx, join_handle))
+}
+
 fn spawn_next_job(
     context: &ControllerContext,
     queue: &mut SingleFlightQueue,
-    event_tx: &Sender<ControllerEvent>,
+    worker_tx: &Sender<WorkerMessage>,
     output_tx: &Sender<ControllerOutput>,
-    requested_wav_path: &std::path::Path,
+    requested_wav_path: &Path,
 ) -> AppResult<()> {
     let wav_path = queue
         .start_next()
@@ -261,27 +327,19 @@ fn spawn_next_job(
         .clone()
         .unwrap_or_else(|| context.paths.history_db.clone());
     let transcription_cfg = context.config.transcription.clone();
-    let output = output_tx.clone();
-    let sender = event_tx.clone();
 
-    thread::Builder::new()
-        .name("quedo-transcription-job".to_owned())
-        .spawn(move || {
-            let result = run_transcription_job(wav_path.clone(), db_path, &transcription_cfg)
-                .map_err(|error| error.to_string());
-            if sender
-                .send(ControllerEvent::TranscriptionFinished { wav_path, result })
-                .is_err()
-            {
-                let _ = output.send(ControllerOutput::Notification(
-                    "controller stopped before transcription completion could be delivered"
-                        .to_owned(),
-                ));
-            }
+    worker_tx
+        .send(WorkerMessage::Transcribe {
+            wav_path,
+            db_path,
+            config: transcription_cfg,
         })
-        .map_err(|error| AppError::Controller(format!("failed to spawn transcription thread: {error}")))?;
-
-    Ok(())
+        .map_err(|_| {
+            let _ = output_tx.send(ControllerOutput::Notification(
+                "transcription worker channel is closed".to_owned(),
+            ));
+            AppError::Controller("transcription worker channel closed".to_owned())
+        })
 }
 
 fn send_state(output_tx: &Sender<ControllerOutput>, state: &ControllerState) -> AppResult<()> {

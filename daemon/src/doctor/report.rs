@@ -38,8 +38,14 @@ impl DoctorReport {
         let mut out = String::new();
         out.push_str(&format!("Doctor state: {:?}\n", self.state));
         out.push_str(&format!("Generated at: {}\n\n", self.generated_at_rfc3339));
-        out.push_str(&format!("{:<30} {:<8} {:<8} {}\n", "CHECK", "STATUS", "REQUIRED", "DETAIL"));
-        out.push_str(&format!("{:<30} {:<8} {:<8} {}\n", "-----", "------", "--------", "------"));
+        out.push_str(&format!(
+            "{:<30} {:<8} {:<8} {}\n",
+            "CHECK", "STATUS", "REQUIRED", "DETAIL"
+        ));
+        out.push_str(&format!(
+            "{:<30} {:<8} {:<8} {}\n",
+            "-----", "------", "--------", "------"
+        ));
 
         for check in &self.checks {
             out.push_str(&format!(

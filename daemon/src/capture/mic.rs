@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
-
-use uuid::Uuid;
+use std::time::Duration;
 
 use crate::error::{AppError, AppResult};
 
@@ -37,14 +35,23 @@ impl MicrophoneCapture {
         start_recording_macos(self.preferred_device.as_deref(), output_dir, watchdog)
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    pub fn start_recording(
+        &self,
+        output_dir: &Path,
+        watchdog: CaptureWatchdogConfig,
+    ) -> AppResult<ActiveRecording> {
+        start_recording_linux(self.preferred_device.as_deref(), output_dir, watchdog)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     pub fn start_recording(
         &self,
         _output_dir: &Path,
         _watchdog: CaptureWatchdogConfig,
     ) -> AppResult<ActiveRecording> {
-        Err(AppError::UnsupportedPlatform(
-            "microphone capture is only implemented for macOS in this environment".to_owned(),
+        Err(AppError::Capture(
+            "microphone capture is only implemented for macOS and Linux in this build".to_owned(),
         ))
     }
 }
@@ -55,15 +62,16 @@ mod macos_capture {
     use std::io::BufWriter;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
 
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{SampleFormat, Stream};
+    use uuid::Uuid;
 
     use super::*;
 
     struct WatchdogState {
         first_frame_seen: AtomicBool,
-        first_frame_at: Mutex<Option<Instant>>,
         last_frame_at: Mutex<Option<Instant>>,
         started_at: Instant,
     }
@@ -72,7 +80,6 @@ mod macos_capture {
         fn new() -> Self {
             Self {
                 first_frame_seen: AtomicBool::new(false),
-                first_frame_at: Mutex::new(None),
                 last_frame_at: Mutex::new(None),
                 started_at: Instant::now(),
             }
@@ -80,11 +87,7 @@ mod macos_capture {
 
         fn mark_frame(&self) {
             let now = Instant::now();
-            if !self.first_frame_seen.swap(true, Ordering::SeqCst) {
-                if let Ok(mut guard) = self.first_frame_at.lock() {
-                    *guard = Some(now);
-                }
-            }
+            self.first_frame_seen.store(true, Ordering::SeqCst);
             if let Ok(mut guard) = self.last_frame_at.lock() {
                 *guard = Some(now);
             }
@@ -130,10 +133,6 @@ mod macos_capture {
     impl ActiveRecording {
         pub fn watchdog_snapshot(&self) -> WatchdogSnapshot {
             self.watchdog_state.snapshot(self.watchdog_cfg)
-        }
-
-        pub fn wav_path(&self) -> &Path {
-            &self.wav_path
         }
 
         pub fn stop(mut self) -> AppResult<PathBuf> {
@@ -189,9 +188,9 @@ mod macos_capture {
             watchdog_state.clone(),
         )?;
 
-        stream
-            .play()
-            .map_err(|error| AppError::Capture(format!("failed to start capture stream: {error}")))?;
+        stream.play().map_err(|error| {
+            AppError::Capture(format!("failed to start capture stream: {error}"))
+        })?;
 
         Ok(ActiveRecording {
             wav_path,
@@ -287,12 +286,14 @@ mod macos_capture {
         };
 
         device
-            .build_input_stream(stream_config, callback, move |error| error_callback(error), None)
+            .build_input_stream(
+                stream_config,
+                callback,
+                move |error| error_callback(error),
+                None,
+            )
             .map_err(|error| AppError::Capture(format!("failed to build input stream: {error}")))
     }
-
-    pub(super) use ActiveRecording;
-    pub(super) use start_recording_macos;
 }
 
 #[cfg(target_os = "macos")]
@@ -301,27 +302,181 @@ pub use macos_capture::ActiveRecording;
 #[cfg(target_os = "macos")]
 use macos_capture::start_recording_macos;
 
-#[cfg(not(target_os = "macos"))]
-pub struct ActiveRecording {
-    wav_path: PathBuf,
+#[cfg(target_os = "linux")]
+mod linux_capture {
+    use std::process::{Child, Command, Stdio};
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    use uuid::Uuid;
+
+    use super::*;
+
+    struct LinuxWatchdogState {
+        first_frame_seen: bool,
+        last_size: u64,
+        last_growth_at: Instant,
+    }
+
+    pub struct ActiveRecording {
+        wav_path: PathBuf,
+        child: Child,
+        started_at: Instant,
+        watchdog_cfg: CaptureWatchdogConfig,
+        watchdog_state: Mutex<LinuxWatchdogState>,
+    }
+
+    impl ActiveRecording {
+        pub fn watchdog_snapshot(&self) -> WatchdogSnapshot {
+            let now = Instant::now();
+            let size = std::fs::metadata(&self.wav_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+
+            match self.watchdog_state.lock() {
+                Ok(mut state) => {
+                    if size > 44 {
+                        if !state.first_frame_seen {
+                            state.first_frame_seen = true;
+                            state.last_growth_at = now;
+                        }
+                        if size > state.last_size {
+                            state.last_size = size;
+                            state.last_growth_at = now;
+                        }
+                    }
+
+                    let armed = if state.first_frame_seen {
+                        true
+                    } else {
+                        self.started_at.elapsed() <= self.watchdog_cfg.arming_timeout
+                    };
+                    let stalled = state.first_frame_seen
+                        && now.duration_since(state.last_growth_at)
+                            > self.watchdog_cfg.stall_timeout;
+
+                    WatchdogSnapshot {
+                        armed,
+                        stalled,
+                        first_frame_seen: state.first_frame_seen,
+                    }
+                }
+                Err(_) => WatchdogSnapshot {
+                    armed: false,
+                    stalled: true,
+                    first_frame_seen: false,
+                },
+            }
+        }
+
+        pub fn stop(mut self) -> AppResult<PathBuf> {
+            let _ = self.child.kill();
+            self.child.wait().map_err(|error| {
+                AppError::Capture(format!("failed waiting for recorder process: {error}"))
+            })?;
+            Ok(self.wav_path)
+        }
+    }
+
+    pub fn start_recording_linux(
+        preferred_device: Option<&str>,
+        output_dir: &Path,
+        watchdog: CaptureWatchdogConfig,
+    ) -> AppResult<ActiveRecording> {
+        std::fs::create_dir_all(output_dir)?;
+        let wav_path = output_dir.join(format!("capture-{}.wav", Uuid::new_v4()));
+
+        let child = if which::which("arecord").is_ok() {
+            spawn_arecord(preferred_device, &wav_path)?
+        } else if which::which("ffmpeg").is_ok() {
+            spawn_ffmpeg(preferred_device, &wav_path)?
+        } else {
+            return Err(AppError::BinaryMissing {
+                binary: "arecord or ffmpeg".to_owned(),
+            });
+        };
+
+        Ok(ActiveRecording {
+            wav_path,
+            child,
+            started_at: Instant::now(),
+            watchdog_cfg: watchdog,
+            watchdog_state: Mutex::new(LinuxWatchdogState {
+                first_frame_seen: false,
+                last_size: 0,
+                last_growth_at: Instant::now(),
+            }),
+        })
+    }
+
+    fn spawn_arecord(preferred_device: Option<&str>, wav_path: &Path) -> AppResult<Child> {
+        let mut command = Command::new("arecord");
+        command
+            .arg("-q")
+            .arg("-f")
+            .arg("S16_LE")
+            .arg("-r")
+            .arg("16000")
+            .arg("-c")
+            .arg("1");
+        if let Some(device) = preferred_device {
+            command.arg("-D").arg(device);
+        }
+        command
+            .arg(wav_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| AppError::Capture(format!("failed to spawn arecord: {error}")))
+    }
+
+    fn spawn_ffmpeg(preferred_device: Option<&str>, wav_path: &Path) -> AppResult<Child> {
+        let input_device = preferred_device.unwrap_or("default");
+        Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "alsa",
+                "-i",
+                input_device,
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(wav_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| AppError::Capture(format!("failed to spawn ffmpeg capture: {error}")))
+    }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub use linux_capture::ActiveRecording;
+
+#[cfg(target_os = "linux")]
+use linux_capture::start_recording_linux;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub struct ActiveRecording;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 impl ActiveRecording {
     pub fn watchdog_snapshot(&self) -> WatchdogSnapshot {
         WatchdogSnapshot {
             armed: false,
-            stalled: false,
+            stalled: true,
             first_frame_seen: false,
         }
     }
 
-    pub fn wav_path(&self) -> &Path {
-        &self.wav_path
-    }
-
     pub fn stop(self) -> AppResult<PathBuf> {
-        Err(AppError::UnsupportedPlatform(
+        Err(AppError::Capture(
             "recording stop unavailable because capture is unsupported on this platform build"
                 .to_owned(),
         ))

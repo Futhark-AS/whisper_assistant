@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use franken_whisper::BackendKind;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppConfig {
     pub hotkey: HotkeyConfig,
@@ -14,21 +14,6 @@ pub struct AppConfig {
     pub service: ServiceConfig,
     pub diagnostics: DiagnosticsConfig,
     pub permissions: PermissionsConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            hotkey: HotkeyConfig::default(),
-            audio: AudioConfig::default(),
-            transcription: TranscriptionConfig::default(),
-            output: OutputConfig::default(),
-            history: HistoryConfig::default(),
-            service: ServiceConfig::default(),
-            diagnostics: DiagnosticsConfig::default(),
-            permissions: PermissionsConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,18 +147,10 @@ pub enum PrunePolicy {
     KeepRecent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ServiceConfig {
     pub autostart_enabled: bool,
-}
-
-impl Default for ServiceConfig {
-    fn default() -> Self {
-        Self {
-            autostart_enabled: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

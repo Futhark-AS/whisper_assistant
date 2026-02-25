@@ -1,5 +1,5 @@
-use crate::error::{AppError, AppResult};
-use crate::ui::UiEvent;
+use crate::controller::events::ControllerEvent;
+use crate::error::AppResult;
 
 #[cfg(target_os = "macos")]
 mod macos_hotkey {
@@ -17,21 +17,25 @@ mod macos_hotkey {
         pub fn new(binding: &str) -> AppResult<Self> {
             let (modifiers, code) = parse_binding(binding)?;
             let manager = GlobalHotKeyManager::new().map_err(|error| {
-                AppError::Ui(format!("failed to initialize global hotkey manager: {error}"))
+                crate::error::AppError::Controller(format!(
+                    "failed to initialize global hotkey manager: {error}"
+                ))
             })?;
             let hotkey = HotKey::new(Some(modifiers), code);
             manager.register(hotkey).map_err(|error| {
-                AppError::Ui(format!("failed to register global hotkey `{binding}`: {error}"))
+                crate::error::AppError::Controller(format!(
+                    "failed to register global hotkey `{binding}`: {error}"
+                ))
             })?;
 
             Ok(Self { manager, hotkey })
         }
 
-        pub fn drain_events(&self) -> Vec<UiEvent> {
+        pub fn drain_events(&self) -> Vec<ControllerEvent> {
             let mut events = Vec::new();
             while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
                 if event.id == self.hotkey.id() {
-                    events.push(UiEvent::Toggle);
+                    events.push(ControllerEvent::Toggle);
                 }
             }
             events
@@ -51,7 +55,9 @@ mod macos_hotkey {
             .collect::<Vec<_>>();
 
         if tokens.is_empty() {
-            return Err(AppError::Config("hotkey binding cannot be empty".to_owned()));
+            return Err(crate::error::AppError::Config(
+                "hotkey binding cannot be empty".to_owned(),
+            ));
         }
 
         let mut modifiers = Modifiers::empty();
@@ -91,7 +97,7 @@ mod macos_hotkey {
                 "y" => key = Some(Code::KeyY),
                 "z" => key = Some(Code::KeyZ),
                 _ => {
-                    return Err(AppError::Config(format!(
+                    return Err(crate::error::AppError::Config(format!(
                         "unsupported hotkey token `{token}` in binding `{binding}`"
                     )));
                 }
@@ -99,7 +105,7 @@ mod macos_hotkey {
         }
 
         let key = key.ok_or_else(|| {
-            AppError::Config(format!(
+            crate::error::AppError::Config(format!(
                 "hotkey binding `{binding}` must include a key token (for example `Space`)"
             ))
         })?;
@@ -119,7 +125,7 @@ impl HotkeyController {
         Ok(Self)
     }
 
-    pub fn drain_events(&self) -> Vec<UiEvent> {
+    pub fn drain_events(&self) -> Vec<ControllerEvent> {
         Vec::new()
     }
 }

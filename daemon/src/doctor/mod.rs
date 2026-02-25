@@ -2,4 +2,4 @@ pub mod checks;
 pub mod report;
 
 pub use checks::run_doctor;
-pub use report::{CheckResult, CheckStatus, DoctorReport, DoctorState};
+pub use report::DoctorReport;

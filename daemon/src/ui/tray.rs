@@ -1,6 +1,6 @@
+use crate::controller::events::ControllerEvent;
 use crate::controller::state::ControllerState;
 use crate::error::AppResult;
-use crate::ui::UiEvent;
 
 #[cfg(target_os = "macos")]
 mod macos_tray {
@@ -10,7 +10,7 @@ mod macos_tray {
     use super::*;
 
     pub struct TrayController {
-        _tray: TrayIcon,
+        tray: TrayIcon,
         toggle_id: MenuId,
         doctor_id: MenuId,
         quit_id: MenuId,
@@ -28,38 +28,55 @@ mod macos_tray {
             let doctor_id = doctor_item.id().clone();
             let quit_id = quit_item.id().clone();
 
-            menu.append(&toggle_item)
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to append toggle menu item: {error}")))?;
-            menu.append(&doctor_item)
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to append doctor menu item: {error}")))?;
+            menu.append(&toggle_item).map_err(|error| {
+                crate::error::AppError::Controller(format!(
+                    "failed to append toggle menu item: {error}"
+                ))
+            })?;
+            menu.append(&doctor_item).map_err(|error| {
+                crate::error::AppError::Controller(format!(
+                    "failed to append doctor menu item: {error}"
+                ))
+            })?;
             menu.append(&PredefinedMenuItem::separator())
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to append separator: {error}")))?;
-            menu.append(&quit_item)
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to append quit menu item: {error}")))?;
+                .map_err(|error| {
+                    crate::error::AppError::Controller(format!(
+                        "failed to append separator: {error}"
+                    ))
+                })?;
+            menu.append(&quit_item).map_err(|error| {
+                crate::error::AppError::Controller(format!(
+                    "failed to append quit menu item: {error}"
+                ))
+            })?;
 
             let tray = TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
                 .with_tooltip("Quedo: idle")
                 .build()
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to initialize tray icon: {error}")))?;
+                .map_err(|error| {
+                    crate::error::AppError::Controller(format!(
+                        "failed to initialize tray icon: {error}"
+                    ))
+                })?;
 
             Ok(Self {
-                _tray: tray,
+                tray,
                 toggle_id,
                 doctor_id,
                 quit_id,
             })
         }
 
-        pub fn drain_events(&self) -> Vec<UiEvent> {
+        pub fn drain_events(&self) -> Vec<ControllerEvent> {
             let mut events = Vec::new();
             while let Ok(event) = MenuEvent::receiver().try_recv() {
                 if event.id == self.toggle_id {
-                    events.push(UiEvent::Toggle);
+                    events.push(ControllerEvent::Toggle);
                 } else if event.id == self.doctor_id {
-                    events.push(UiEvent::RunDoctor);
+                    events.push(ControllerEvent::RunDoctor);
                 } else if event.id == self.quit_id {
-                    events.push(UiEvent::Quit);
+                    events.push(ControllerEvent::Shutdown);
                 }
             }
             events
@@ -72,9 +89,11 @@ mod macos_tray {
                 ControllerState::Processing => "Quedo: processing",
                 ControllerState::Degraded(_) => "Quedo: degraded",
             };
-            self._tray
-                .set_tooltip(Some(label))
-                .map_err(|error| crate::error::AppError::Ui(format!("failed to update tray tooltip: {error}")))
+            self.tray.set_tooltip(Some(label)).map_err(|error| {
+                crate::error::AppError::Controller(format!(
+                    "failed to update tray tooltip: {error}"
+                ))
+            })
         }
     }
 
@@ -90,7 +109,7 @@ impl TrayController {
         Ok(Self)
     }
 
-    pub fn drain_events(&self) -> Vec<UiEvent> {
+    pub fn drain_events(&self) -> Vec<ControllerEvent> {
         Vec::new()
     }
 
