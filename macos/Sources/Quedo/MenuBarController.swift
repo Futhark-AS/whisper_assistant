@@ -9,6 +9,8 @@ final class MenuBarController: NSObject {
     private var lastSnapshot: AppLifecycleSnapshot?
     private var lastContract: UIStateContract?
     private var completionResetWorkItem: DispatchWorkItem?
+    private var processingAnimationTimer: DispatchSourceTimer?
+    private var processingAnimationFrame: Int = 0
 
     init(statusItem: NSStatusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)) {
         self.statusItem = statusItem
@@ -63,6 +65,7 @@ final class MenuBarController: NSObject {
     private func showCompletionIndicator() {
         completionResetWorkItem?.cancel()
         completionResetWorkItem = nil
+        stopProcessingAnimation()
 
         if let image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Transcription complete") {
             image.isTemplate = true
@@ -82,7 +85,7 @@ final class MenuBarController: NSObject {
             self.configureStatusItemAppearance(iconName: contract.icon, phase: snapshot.phase)
         }
         completionResetWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
     }
 
     private func configureStatusItemAppearance(iconName: String, phase: AppPhase) {
@@ -90,12 +93,13 @@ final class MenuBarController: NSObject {
             return
         }
 
-        if let image = quedoTemplateImage(for: phase) {
-            image.isTemplate = true
-            button.image = image
+        if isProcessingAnimationPhase(phase) {
+            startProcessingAnimation()
             button.title = ""
             return
         }
+
+        stopProcessingAnimation()
 
         if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Quedo") {
             image.isTemplate = true
@@ -107,29 +111,54 @@ final class MenuBarController: NSObject {
         }
     }
 
-    private func quedoTemplateImage(for phase: AppPhase) -> NSImage? {
-        enum IconStyle {
-            case ready
-            case recording
-            case processing
-        }
-
-        let style: IconStyle?
+    private func isProcessingAnimationPhase(_ phase: AppPhase) -> Bool {
         switch phase {
-        case .ready:
-            style = .ready
-        case .recording:
-            style = .recording
-        case .processing, .streamingPartial, .providerFallback, .outputting:
-            style = .processing
+        case .processing, .streamingPartial:
+            return true
         default:
-            style = nil
+            return false
+        }
+    }
+
+    private func startProcessingAnimation() {
+        if processingAnimationTimer != nil {
+            return
         }
 
-        guard let style else {
-            return nil
-        }
+        processingAnimationFrame = 0
+        renderProcessingAnimationFrame()
 
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.11, repeating: 0.11)
+        timer.setEventHandler { [weak self] in
+            self?.advanceProcessingAnimation()
+        }
+        processingAnimationTimer = timer
+        timer.resume()
+    }
+
+    private func stopProcessingAnimation() {
+        processingAnimationTimer?.cancel()
+        processingAnimationTimer = nil
+        processingAnimationFrame = 0
+    }
+
+    private func advanceProcessingAnimation() {
+        processingAnimationFrame = (processingAnimationFrame + 1) % 24
+        renderProcessingAnimationFrame()
+    }
+
+    private func renderProcessingAnimationFrame() {
+        guard let button = statusItem.button else {
+            return
+        }
+        let image = processingAnimationImage(frame: processingAnimationFrame)
+        image.isTemplate = true
+        button.image = image
+        button.title = ""
+    }
+
+    private func processingAnimationImage(frame: Int) -> NSImage {
         let size = NSSize(width: 22, height: 22)
         let image = NSImage(size: size, flipped: false) { _ in
             let center = NSPoint(x: 11, y: 11)
@@ -137,65 +166,25 @@ final class MenuBarController: NSObject {
             NSColor.white.setFill()
             NSColor.white.setStroke()
 
-            switch style {
-            case .ready:
-                let dotRadius: CGFloat = 2.0
-                let dotRect = NSRect(
-                    x: center.x - dotRadius, y: center.y - dotRadius,
-                    width: dotRadius * 2, height: dotRadius * 2
-                )
-                NSBezierPath(ovalIn: dotRect).fill()
+            let dotRadius: CGFloat = 1.8
+            let dotRect = NSRect(
+                x: center.x - dotRadius, y: center.y - dotRadius,
+                width: dotRadius * 2, height: dotRadius * 2
+            )
+            NSBezierPath(ovalIn: dotRect).fill()
 
-                let innerArc = NSBezierPath()
-                innerArc.lineWidth = 1.5
-                innerArc.appendArc(withCenter: center, radius: 4.5, startAngle: -60, endAngle: 60, clockwise: false)
-                innerArc.stroke()
+            let radii: [CGFloat] = [3.8, 5.8, 7.8]
+            let arcSpan: CGFloat = 64
+            let baseRotation = CGFloat(frame) * 15 - 90
 
-                let outerArc = NSBezierPath()
-                outerArc.lineWidth = 1.5
-                outerArc.appendArc(withCenter: center, radius: 7.0, startAngle: -60, endAngle: 60, clockwise: false)
-                outerArc.stroke()
-
-            case .recording:
-                let dotRadius: CGFloat = 2.8
-                let dotRect = NSRect(
-                    x: center.x - dotRadius, y: center.y - dotRadius,
-                    width: dotRadius * 2, height: dotRadius * 2
-                )
-                NSBezierPath(ovalIn: dotRect).fill()
-
-                let innerArc = NSBezierPath()
-                innerArc.lineWidth = 3.0
-                innerArc.appendArc(withCenter: center, radius: 4.5, startAngle: -70, endAngle: 70, clockwise: false)
-                innerArc.stroke()
-
-                let outerArc = NSBezierPath()
-                outerArc.lineWidth = 3.0
-                outerArc.appendArc(withCenter: center, radius: 7.0, startAngle: -70, endAngle: 70, clockwise: false)
-                outerArc.stroke()
-
-            case .processing:
-                let dotRadius: CGFloat = 2.0
-                let dotRect = NSRect(
-                    x: center.x - dotRadius, y: center.y - dotRadius,
-                    width: dotRadius * 2, height: dotRadius * 2
-                )
-                NSBezierPath(ovalIn: dotRect).fill()
-
-                let arc1 = NSBezierPath()
-                arc1.lineWidth = 1.8
-                arc1.appendArc(withCenter: center, radius: 3.5, startAngle: -45, endAngle: 45, clockwise: false)
-                arc1.stroke()
-
-                let arc2 = NSBezierPath()
-                arc2.lineWidth = 1.8
-                arc2.appendArc(withCenter: center, radius: 5.5, startAngle: -45, endAngle: 45, clockwise: false)
-                arc2.stroke()
-
-                let arc3 = NSBezierPath()
-                arc3.lineWidth = 1.8
-                arc3.appendArc(withCenter: center, radius: 7.5, startAngle: -45, endAngle: 45, clockwise: false)
-                arc3.stroke()
+            for (index, radius) in radii.enumerated() {
+                let phaseOffset = CGFloat(index) * 30
+                let startAngle = baseRotation + phaseOffset - arcSpan / 2
+                let endAngle = startAngle + arcSpan
+                let arc = NSBezierPath()
+                arc.lineWidth = 2.0
+                arc.appendArc(withCenter: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: false)
+                arc.stroke()
             }
 
             return true

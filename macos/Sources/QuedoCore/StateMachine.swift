@@ -254,7 +254,7 @@ public actor LifecycleStateMachine {
             )
         case .recording:
             return UIStateContract(
-                icon: "record.circle",
+                icon: "record.circle.fill",
                 notificationCopy: "Recording. Press shortcut to stop.",
                 actions: [.stop, .cancel]
             )
