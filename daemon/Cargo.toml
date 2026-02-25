@@ -1,24 +1,30 @@
 [package]
 name = "quedo-daemon"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
 arboard = "3.6"
 clap = { version = "4.5", features = ["derive"] }
+ctrlc = "3.5"
 crossbeam-channel = "0.5"
+chrono = "0.4"
 directories = "6.0"
 hound = "3.5"
 notify-rust = "4.11"
+regex = "1.12"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tempfile = "3.23"
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "time"] }
 toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.18", features = ["v4"] }
+which = "8.0"
 
 franken_whisper = { path = "../third_party/franken-stack/franken_whisper" }
 

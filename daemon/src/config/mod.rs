@@ -1,0 +1,8 @@
+pub mod load;
+pub mod schema;
+
+pub use load::{load_config, CliOverrides};
+pub use schema::{
+    AppConfig, AudioConfig, DiagnosticsConfig, HistoryConfig, HotkeyConfig, OutputConfig, OutputMode,
+    ServiceConfig, TranscriptionConfig,
+};

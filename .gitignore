@@ -5,6 +5,8 @@ raw_output.wav
 shortcuts.py
 **/.vscode/
 history/
+!daemon/src/history/
+!daemon/src/history/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

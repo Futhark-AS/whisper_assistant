@@ -1192,7 +1192,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "which",
+ "which 7.0.3",
 ]
 
 [[package]]
@@ -2764,23 +2764,29 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
+ "chrono",
  "clap",
  "cpal",
  "crossbeam-channel",
+ "ctrlc",
  "directories",
  "franken_whisper",
  "global-hotkey",
  "hound",
  "notify-rust",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "tray-icon",
+ "uuid",
+ "which 8.0.0",
 ]
 
 [[package]]
@@ -2840,6 +2846,18 @@ dependencies = [
  "getrandom 0.2.17",
  "libredox",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "regex"
+version = "1.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -3714,6 +3732,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
 dependencies = [
  "either",
+ "env_home",
+ "rustix",
+ "winsafe",
+]
+
+[[package]]
+name = "which"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fabb953106c3c8eea8306e4393700d7657561cb43122571b172bbfb7c7ba1d"
+dependencies = [
  "env_home",
  "rustix",
  "winsafe",
