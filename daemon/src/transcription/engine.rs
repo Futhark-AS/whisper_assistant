@@ -2,6 +2,10 @@ use franken_whisper::{FrankenWhisperEngine, RunReport, TranscribeRequest};
 
 use crate::error::{AppError, AppResult};
 
+pub trait EngineAdapter {
+    fn transcribe_request(&self, request: TranscribeRequest) -> AppResult<RunReport>;
+}
+
 pub struct FrankenEngine {
     inner: FrankenWhisperEngine,
 }
@@ -17,5 +21,11 @@ impl FrankenEngine {
         self.inner
             .transcribe(request)
             .map_err(|error| AppError::Transcription(format!("engine transcribe failed: {error}")))
+    }
+}
+
+impl EngineAdapter for FrankenEngine {
+    fn transcribe_request(&self, request: TranscribeRequest) -> AppResult<RunReport> {
+        self.transcribe(request)
     }
 }

@@ -50,6 +50,16 @@ pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
     checks.push(check_recording_backend_capability());
     checks.extend(check_macos_metal(paths));
 
+    let state = derive_state(&checks);
+
+    DoctorReport {
+        generated_at_rfc3339: Utc::now().to_rfc3339(),
+        state,
+        checks,
+    }
+}
+
+fn derive_state(checks: &[CheckResult]) -> DoctorState {
     let required_failed = checks
         .iter()
         .any(|check| check.required && check.status == CheckStatus::Fail);
@@ -57,18 +67,12 @@ pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
         .iter()
         .any(|check| matches!(check.status, CheckStatus::Warn | CheckStatus::Fail));
 
-    let state = if required_failed {
+    if required_failed {
         DoctorState::Unavailable
     } else if any_degraded {
         DoctorState::Degraded
     } else {
         DoctorState::Ready
-    };
-
-    DoctorReport {
-        generated_at_rfc3339: Utc::now().to_rfc3339(),
-        state,
-        checks,
     }
 }
 
@@ -556,4 +560,269 @@ fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        check_binary_version, check_microphone_permission, check_recording_backend_capability,
+        derive_state, parse_target_version, parse_version_triplet, run_doctor, version_at_least,
+    };
+    use crate::bootstrap::paths::AppPaths;
+    use crate::config::schema::AppConfig;
+    use crate::doctor::report::{CheckResult, CheckStatus, DoctorState};
+    use std::fs;
+    use std::path::Path;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let old = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = self.old.as_ref() {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn write_script(path: &Path, body: &str) {
+        fs::write(path, body).expect("write script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(path).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(path, perms).expect("chmod");
+        }
+    }
+
+    fn temp_paths(root: &Path) -> AppPaths {
+        AppPaths {
+            config_dir: root.join("config"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            logs_dir: root.join("cache/logs"),
+            state_dir: root.join("cache/fw-state"),
+            config_file: root.join("config/config.toml"),
+            history_db: root.join("data/history.sqlite3"),
+            autostart_file: root.join("autostart/quedo-daemon.desktop"),
+        }
+    }
+
+    #[test]
+    fn version_parser_handles_two_and_three_parts() {
+        assert_eq!(parse_version_triplet("ffmpeg 6.1"), Some([6, 1, 0]));
+        assert_eq!(parse_version_triplet("whisper-cli 1.7.2"), Some([1, 7, 2]));
+        assert_eq!(parse_version_triplet("noise"), None);
+        assert!(version_at_least(&[6, 1, 0], &parse_target_version("6.0")));
+        assert!(!version_at_least(&[1, 0, 0], &parse_target_version("1.7.2")));
+    }
+
+    #[test]
+    fn state_derivation_matches_contract() {
+        let checks = vec![CheckResult {
+            name: "a".to_owned(),
+            status: CheckStatus::Fail,
+            detail: "bad".to_owned(),
+            required: true,
+            remediation: None,
+        }];
+        assert_eq!(derive_state(&checks), DoctorState::Unavailable);
+
+        let checks = vec![CheckResult {
+            name: "a".to_owned(),
+            status: CheckStatus::Warn,
+            detail: "warn".to_owned(),
+            required: false,
+            remediation: None,
+        }];
+        assert_eq!(derive_state(&checks), DoctorState::Degraded);
+
+        let checks = vec![CheckResult {
+            name: "a".to_owned(),
+            status: CheckStatus::Pass,
+            detail: "ok".to_owned(),
+            required: true,
+            remediation: None,
+        }];
+        assert_eq!(derive_state(&checks), DoctorState::Ready);
+    }
+
+    #[test]
+    fn binary_check_missing_binary_fails() {
+        let result = check_binary_version("definitely-not-a-binary", "1.0", true, Some("install"));
+        assert_eq!(result.status, CheckStatus::Fail);
+        assert!(result.detail.contains("binary not found"));
+    }
+
+    #[test]
+    fn binary_check_old_version_fails() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let script = temp.path().join("mock-old");
+        write_script(
+            &script,
+            r#"#!/bin/sh
+echo "mock version 1.0.0"
+"#,
+        );
+        let _path = EnvVarGuard::set("PATH", temp.path().to_str().expect("utf8"));
+        let result = check_binary_version("mock-old", "2.0", true, Some("upgrade"));
+        assert_eq!(result.status, CheckStatus::Fail);
+        assert!(result.detail.contains("(< 2.0)"));
+    }
+
+    #[test]
+    fn binary_check_acceptable_version_passes() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let script = temp.path().join("mock-ok");
+        write_script(
+            &script,
+            r#"#!/bin/sh
+echo "mock version 2.1.3"
+"#,
+        );
+        let _path = EnvVarGuard::set("PATH", temp.path().to_str().expect("utf8"));
+        let result = check_binary_version("mock-ok", "2.0", true, Some("upgrade"));
+        assert_eq!(result.status, CheckStatus::Pass);
+        assert!(result.detail.contains("2.1.3"));
+    }
+
+    #[test]
+    fn binary_check_unparseable_version_warns() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let script = temp.path().join("mock-warn");
+        write_script(
+            &script,
+            r#"#!/bin/sh
+echo "this is not a version"
+"#,
+        );
+        let _path = EnvVarGuard::set("PATH", temp.path().to_str().expect("utf8"));
+        let result = check_binary_version("mock-warn", "2.0", true, Some("upgrade"));
+        assert_eq!(result.status, CheckStatus::Warn);
+        assert!(result.detail.contains("version parse failed"));
+    }
+
+    #[test]
+    fn python_required_flag_toggles_with_diarize() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let paths = temp_paths(temp.path());
+        paths.ensure_dirs().expect("dirs");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+
+        for name in ["ffmpeg", "ffprobe", "whisper-cli", "python3"] {
+            write_script(
+                &bin.join(name),
+                r#"#!/bin/sh
+echo "mock version 9.9.9"
+"#,
+            );
+        }
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+echo "card 0: Device [Mock Device], device 0: Mock [Mock]"
+"#,
+        );
+
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+
+        let mut config = AppConfig::default();
+        config.transcription.diarize = false;
+        let report = run_doctor(&paths, &config);
+        let python = report
+            .checks
+            .iter()
+            .find(|check| check.name == "python3")
+            .expect("python check");
+        assert!(!python.required);
+
+        config.transcription.diarize = true;
+        let report = run_doctor(&paths, &config);
+        let python = report
+            .checks
+            .iter()
+            .find(|check| check.name == "python3")
+            .expect("python check");
+        assert!(python.required);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn linux_microphone_probe_outcomes() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+echo "card 0: Device [Mock Device], device 0: Mock [Mock]"
+"#,
+        );
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+        let pass = check_microphone_permission(true);
+        assert_eq!(pass.status, CheckStatus::Pass);
+
+        write_script(&bin.join("arecord"), "#!/bin/sh\necho \"\"\n");
+        let warn = check_microphone_permission(true);
+        assert_eq!(warn.status, CheckStatus::Warn);
+
+        write_script(
+            &bin.join("arecord"),
+            "#!/bin/sh\nexit 1\n",
+        );
+        let warn_error = check_microphone_permission(true);
+        assert_eq!(warn_error.status, CheckStatus::Warn);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn recording_backend_capability_outcomes() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+echo "card 0: Device [Mock Device], device 0: Mock [Mock]"
+"#,
+        );
+        let pass = check_recording_backend_capability();
+        assert_eq!(pass.status, CheckStatus::Pass);
+
+        write_script(&bin.join("arecord"), "#!/bin/sh\necho \"\"\n");
+        let warn = check_recording_backend_capability();
+        assert_eq!(warn.status, CheckStatus::Warn);
+
+        fs::remove_file(bin.join("arecord")).expect("remove");
+        write_script(&bin.join("ffmpeg"), "#!/bin/sh\necho \"ffmpeg version 8.0\"\n");
+        let pass_ffmpeg = check_recording_backend_capability();
+        assert_eq!(pass_ffmpeg.status, CheckStatus::Pass);
+
+        fs::remove_file(bin.join("ffmpeg")).expect("remove ffmpeg");
+        let fail = check_recording_backend_capability();
+        assert_eq!(fail.status, CheckStatus::Fail);
+    }
 }

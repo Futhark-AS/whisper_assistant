@@ -482,3 +482,202 @@ impl ActiveRecording {
         ))
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::linux_capture::start_recording_linux;
+    use super::CaptureWatchdogConfig;
+    use crate::error::AppError;
+    use std::fs;
+    use std::path::Path;
+    use std::time::Duration;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let old = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(old) = self.old.as_ref() {
+                std::env::set_var(self.key, old);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn write_script(path: &Path, body: &str) {
+        fs::write(path, body).expect("write");
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).expect("chmod");
+    }
+
+    fn watchdog(arming_ms: u64, stall_ms: u64) -> CaptureWatchdogConfig {
+        CaptureWatchdogConfig {
+            arming_timeout: Duration::from_millis(arming_ms),
+            stall_timeout: Duration::from_millis(stall_ms),
+        }
+    }
+
+    #[test]
+    fn linux_uses_arecord_when_present() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let log = temp.path().join("invocations.log");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+        let _log = EnvVarGuard::set("MOCK_LOG", log.to_str().expect("utf8"));
+
+        let recorder_script = r#"#!/bin/sh
+for arg in "$@"; do out="$arg"; done
+echo "$0" >> "$MOCK_LOG"
+: > "$out"
+sleep 30
+"#;
+        write_script(&bin.join("arecord"), recorder_script);
+        write_script(&bin.join("ffmpeg"), recorder_script);
+
+        let recording = start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
+        std::thread::sleep(Duration::from_millis(80));
+        let wav_path = recording.stop().expect("stop");
+        assert!(wav_path.exists());
+        let log_text = fs::read_to_string(log).expect("log");
+        assert!(log_text.contains("arecord"));
+        assert!(!log_text.contains("ffmpeg"));
+    }
+
+    #[test]
+    fn linux_falls_back_to_ffmpeg_when_arecord_missing() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let log = temp.path().join("invocations.log");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+        let _log = EnvVarGuard::set("MOCK_LOG", log.to_str().expect("utf8"));
+
+        let ffmpeg_script = r#"#!/bin/sh
+for arg in "$@"; do out="$arg"; done
+echo "$0" >> "$MOCK_LOG"
+: > "$out"
+sleep 30
+"#;
+        write_script(&bin.join("ffmpeg"), ffmpeg_script);
+
+        let recording = start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
+        std::thread::sleep(Duration::from_millis(80));
+        let wav_path = recording.stop().expect("stop");
+        assert!(wav_path.exists());
+        let log_text = fs::read_to_string(log).expect("log");
+        assert!(log_text.contains("ffmpeg"));
+    }
+
+    #[test]
+    fn linux_errors_when_no_recorder_binary() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let empty_bin = temp.path().join("empty-bin");
+        fs::create_dir_all(&empty_bin).expect("mkdir");
+        let _path = EnvVarGuard::set("PATH", empty_bin.to_str().expect("utf8"));
+
+        let result = start_recording_linux(None, temp.path(), watchdog(500, 500));
+        assert!(matches!(result, Err(AppError::BinaryMissing { .. })));
+    }
+
+    #[test]
+    fn watchdog_arming_timeout_detection() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+for arg in "$@"; do out="$arg"; done
+: > "$out"
+sleep 30
+"#,
+        );
+
+        let recording =
+            start_recording_linux(None, temp.path(), watchdog(40, 500)).expect("start");
+        std::thread::sleep(Duration::from_millis(80));
+        let snapshot = recording.watchdog_snapshot();
+        assert!(!snapshot.armed);
+        assert!(!snapshot.first_frame_seen);
+        let _ = recording.stop();
+    }
+
+    #[test]
+    fn watchdog_stall_detection_after_initial_growth() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+for arg in "$@"; do out="$arg"; done
+printf "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$out"
+sleep 30
+"#,
+        );
+
+        let recording =
+            start_recording_linux(None, temp.path(), watchdog(500, 50)).expect("start");
+        std::thread::sleep(Duration::from_millis(60));
+        let first = recording.watchdog_snapshot();
+        assert!(first.armed);
+        assert!(first.first_frame_seen);
+
+        std::thread::sleep(Duration::from_millis(120));
+        let snapshot = recording.watchdog_snapshot();
+        assert!(snapshot.stalled);
+        let _ = recording.stop();
+    }
+
+    #[test]
+    fn stop_terminates_child_and_returns_wav_path() {
+        let _guard = crate::test_support::lock_env();
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).expect("mkdir");
+        let _path = EnvVarGuard::set("PATH", bin.to_str().expect("utf8"));
+
+        write_script(
+            &bin.join("arecord"),
+            r#"#!/bin/sh
+for arg in "$@"; do out="$arg"; done
+i=0
+: > "$out"
+while [ "$i" -lt 128 ]; do
+  printf "a" >> "$out"
+  i=$((i+1))
+done
+sleep 30
+"#,
+        );
+
+        let recording =
+            start_recording_linux(Some("default"), temp.path(), watchdog(500, 500)).expect("start");
+        std::thread::sleep(Duration::from_millis(80));
+        let wav = recording.stop().expect("stop");
+        assert_eq!(wav.extension().and_then(|e| e.to_str()), Some("wav"));
+    }
+}

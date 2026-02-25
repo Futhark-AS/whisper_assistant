@@ -353,3 +353,105 @@ fn send_notification(output_tx: &Sender<ControllerOutput>, message: &str) -> App
         .send(ControllerOutput::Notification(message.to_owned()))
         .map_err(|_| AppError::ChannelClosed("controller output channel closed".to_owned()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        send_notification, send_state, spawn_next_job, ControllerContext, SingleFlightQueue,
+        WorkerMessage,
+    };
+    use crate::bootstrap::paths::AppPaths;
+    use crate::config::schema::AppConfig;
+    use crate::controller::events::ControllerOutput;
+    use crate::controller::state::ControllerState;
+    use std::path::PathBuf;
+
+    fn sample_context(root: &std::path::Path) -> ControllerContext {
+        let mut config = AppConfig::default();
+        config.history.db_path = Some(root.join("history.sqlite3"));
+
+        ControllerContext {
+            config,
+            paths: AppPaths {
+                config_dir: root.join("config"),
+                data_dir: root.join("data"),
+                cache_dir: root.join("cache"),
+                logs_dir: root.join("cache/logs"),
+                state_dir: root.join("cache/fw-state"),
+                config_file: root.join("config/config.toml"),
+                history_db: root.join("data/history.sqlite3"),
+                autostart_file: root.join("autostart/quedo-daemon.desktop"),
+            },
+        }
+    }
+
+    #[test]
+    fn send_helpers_emit_expected_outputs() {
+        let (tx, rx) = crossbeam_channel::unbounded::<ControllerOutput>();
+        send_state(&tx, &ControllerState::Idle).expect("state");
+        send_notification(&tx, "hello").expect("notify");
+
+        assert!(matches!(
+            rx.recv().expect("recv"),
+            ControllerOutput::StateChanged(ControllerState::Idle)
+        ));
+        assert!(matches!(
+            rx.recv().expect("recv"),
+            ControllerOutput::Notification(message) if message == "hello"
+        ));
+    }
+
+    #[test]
+    fn spawn_next_job_sends_transcribe_message() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let context = sample_context(temp.path());
+        let requested = PathBuf::from("/tmp/a.wav");
+        let mut queue = SingleFlightQueue::new(1);
+        queue.enqueue(requested.clone()).expect("enqueue");
+        let (worker_tx, worker_rx) = crossbeam_channel::unbounded::<WorkerMessage>();
+        let (output_tx, _output_rx) = crossbeam_channel::unbounded::<ControllerOutput>();
+
+        spawn_next_job(
+            &context,
+            &mut queue,
+            &worker_tx,
+            &output_tx,
+            requested.as_path(),
+        )
+        .expect("spawn");
+
+        match worker_rx.recv().expect("message") {
+            WorkerMessage::Transcribe {
+                wav_path,
+                db_path,
+                config: _,
+            } => {
+                assert_eq!(wav_path, requested);
+                assert_eq!(db_path, context.config.history.db_path.expect("db path"));
+            }
+            WorkerMessage::Shutdown => panic!("unexpected shutdown"),
+        }
+    }
+
+    #[test]
+    fn spawn_next_job_detects_queue_mismatch() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let context = sample_context(temp.path());
+        let expected = PathBuf::from("/tmp/expected.wav");
+        let queued = PathBuf::from("/tmp/other.wav");
+        let mut queue = SingleFlightQueue::new(1);
+        queue.enqueue(queued).expect("enqueue");
+        let (worker_tx, _worker_rx) = crossbeam_channel::unbounded::<WorkerMessage>();
+        let (output_tx, _output_rx) = crossbeam_channel::unbounded::<ControllerOutput>();
+
+        let error = spawn_next_job(
+            &context,
+            &mut queue,
+            &worker_tx,
+            &output_tx,
+            expected.as_path(),
+        )
+        .expect_err("mismatch");
+        assert!(error.to_string().contains("queue scheduling mismatch"));
+    }
+}

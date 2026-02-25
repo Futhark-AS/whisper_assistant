@@ -22,3 +22,32 @@ impl RuntimeTopology {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeTopology;
+    use crate::controller::events::{ControllerEvent, ControllerOutput};
+    use crate::controller::state::ControllerState;
+
+    #[test]
+    fn channels_round_trip_messages() {
+        let topology = RuntimeTopology::new();
+
+        topology
+            .controller_event_tx
+            .send(ControllerEvent::Toggle)
+            .expect("send event");
+        let event = topology.controller_event_rx.recv().expect("recv event");
+        assert!(matches!(event, ControllerEvent::Toggle));
+
+        topology
+            .controller_output_tx
+            .send(ControllerOutput::StateChanged(ControllerState::Idle))
+            .expect("send output");
+        let output = topology.controller_output_rx.recv().expect("recv output");
+        assert!(matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+        ));
+    }
+}

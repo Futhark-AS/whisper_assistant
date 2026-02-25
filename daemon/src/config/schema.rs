@@ -184,3 +184,32 @@ impl Default for PermissionsConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, OutputMode, TranscriptionConfig};
+    use franken_whisper::BackendKind;
+
+    #[test]
+    fn defaults_match_architecture_contract() {
+        let config = AppConfig::default();
+        assert_eq!(config.transcription.backend, BackendKind::Auto);
+        assert_eq!(config.transcription.timeout_seconds, 45);
+        assert!(!config.transcription.diarize);
+        assert_eq!(config.output.mode, OutputMode::ClipboardOnly);
+        assert_eq!(config.hotkey.binding, "Ctrl+Shift+Space");
+        assert_eq!(config.audio.max_recording_seconds, 300);
+    }
+
+    #[test]
+    fn timeout_ms_saturates_on_extreme_values() {
+        let mut config = TranscriptionConfig {
+            timeout_seconds: 2,
+            ..TranscriptionConfig::default()
+        };
+        assert_eq!(config.timeout_ms(), 2_000);
+
+        config.timeout_seconds = u64::MAX;
+        assert_eq!(config.timeout_ms(), u64::MAX);
+    }
+}

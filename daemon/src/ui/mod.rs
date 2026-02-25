@@ -31,3 +31,17 @@ impl UiFrontend {
 }
 
 pub use notify::Notifier;
+
+#[cfg(test)]
+mod tests {
+    use super::UiFrontend;
+    use crate::controller::state::ControllerState;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_frontend_behaves_as_noop() {
+        let ui = UiFrontend::new("Ctrl+Shift+Space").expect("ui");
+        assert!(ui.drain_events().is_empty());
+        ui.set_state(&ControllerState::Idle).expect("set");
+    }
+}

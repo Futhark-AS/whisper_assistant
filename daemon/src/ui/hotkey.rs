@@ -132,3 +132,15 @@ impl HotkeyController {
 
 #[cfg(target_os = "macos")]
 pub use macos_hotkey::HotkeyController;
+
+#[cfg(test)]
+mod tests {
+    use super::HotkeyController;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_hotkey_is_noop() {
+        let controller = HotkeyController::new("Ctrl+Shift+Space").expect("new");
+        assert!(controller.drain_events().is_empty());
+    }
+}

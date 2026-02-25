@@ -13,3 +13,20 @@ impl ClipboardOutput {
             .map_err(|error| AppError::Clipboard(format!("clipboard write failed: {error}")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ClipboardOutput;
+    use crate::error::AppError;
+
+    #[test]
+    fn write_text_returns_ok_or_clipboard_error() {
+        match ClipboardOutput::write_text("hello world") {
+            Ok(()) => {}
+            Err(AppError::Clipboard(message)) => {
+                assert!(message.contains("clipboard"));
+            }
+            Err(other) => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+}

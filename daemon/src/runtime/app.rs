@@ -217,3 +217,84 @@ pub fn status_report(config: &AppConfig, paths: &AppPaths) -> AppResult<String> 
 
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{install_autostart, status_report};
+    use crate::bootstrap::paths::AppPaths;
+    use crate::config::schema::AppConfig;
+    use rusqlite::Connection;
+
+    fn make_paths(root: &std::path::Path) -> AppPaths {
+        AppPaths {
+            config_dir: root.join("config"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            logs_dir: root.join("cache/logs"),
+            state_dir: root.join("cache/fw-state"),
+            config_file: root.join("config/config.toml"),
+            history_db: root.join("data/history.sqlite3"),
+            autostart_file: if cfg!(target_os = "macos") {
+                root.join("LaunchAgents/io.quedo.daemon.plist")
+            } else {
+                root.join("autostart/quedo-daemon.desktop")
+            },
+        }
+    }
+
+    #[test]
+    fn install_autostart_writes_expected_template() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let paths = make_paths(temp.path());
+        let installed = install_autostart(&paths).expect("install");
+        assert_eq!(installed, paths.autostart_file);
+        let text = std::fs::read_to_string(installed).expect("read");
+        assert!(text.contains("run"));
+        if cfg!(target_os = "macos") {
+            assert!(text.contains("<plist"));
+        } else {
+            assert!(text.contains("[Desktop Entry]"));
+        }
+    }
+
+    #[test]
+    fn status_report_contains_paths_and_history_summary() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let paths = make_paths(temp.path());
+        paths.ensure_dirs().expect("dirs");
+
+        let conn = Connection::open(&paths.history_db).expect("open db");
+        conn.execute_batch(
+            "CREATE TABLE runs (
+                id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                transcript TEXT NOT NULL
+            );",
+        )
+        .expect("schema");
+        conn.execute(
+            "INSERT INTO runs (id, started_at, finished_at, backend, transcript)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                "run-1",
+                "2026-02-25T00:00:00Z",
+                "2026-02-25T00:00:01Z",
+                "whisper_cpp",
+                "hello world",
+            ),
+        )
+        .expect("insert");
+
+        let config = AppConfig::default();
+        let report = status_report(&config, &paths).expect("report");
+        assert!(report.contains("Quedo daemon status"));
+        assert!(report.contains("config:"));
+        assert!(report.contains("history_db:"));
+        assert!(report.contains("franken_state_dir:"));
+        assert!(report.contains("recording_backend:"));
+        assert!(report.contains("recent_runs: 1"));
+        assert!(report.contains("last_run: run-1"));
+    }
+}

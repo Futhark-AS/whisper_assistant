@@ -43,3 +43,43 @@ pub enum AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+    use serde::ser::Error as _;
+
+    #[test]
+    fn display_messages_cover_all_variants() {
+        let cases = vec![
+            AppError::Io(std::io::Error::other("disk gone")),
+            AppError::TomlParse(toml::from_str::<toml::Value>("not= [valid").unwrap_err()),
+            AppError::TomlSerialize(toml::ser::Error::custom("serialize failed")),
+            AppError::Json(serde_json::from_str::<serde_json::Value>("{bad").unwrap_err()),
+            AppError::BinaryMissing {
+                binary: "ffmpeg".to_owned(),
+            },
+            AppError::Config("bad config".to_owned()),
+            AppError::Capture("capture boom".to_owned()),
+            AppError::Transcription("tx failed".to_owned()),
+            AppError::Clipboard("clipboard dead".to_owned()),
+            AppError::Controller("controller dead".to_owned()),
+            AppError::ChannelClosed("closed".to_owned()),
+            AppError::Install("install failed".to_owned()),
+            AppError::Sqlite(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::Unknown,
+                    extended_code: 1,
+                },
+                Some("sqlite boom".to_owned()),
+            )),
+        ];
+
+        for error in cases {
+            let display = format!("{error}");
+            let debug = format!("{error:?}");
+            assert!(!display.trim().is_empty());
+            assert!(!debug.trim().is_empty());
+        }
+    }
+}

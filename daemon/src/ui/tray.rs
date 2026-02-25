@@ -120,3 +120,21 @@ impl TrayController {
 
 #[cfg(target_os = "macos")]
 pub use macos_tray::TrayController;
+
+#[cfg(test)]
+mod tests {
+    use super::TrayController;
+    use crate::controller::state::ControllerState;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_tray_is_noop() {
+        let tray = TrayController::new().expect("new");
+        assert!(tray.drain_events().is_empty());
+        tray.set_state(&ControllerState::Idle).expect("set idle");
+        tray.set_state(&ControllerState::Recording).expect("set recording");
+        tray.set_state(&ControllerState::Processing).expect("set processing");
+        tray.set_state(&ControllerState::Degraded("err".to_owned()))
+            .expect("set degraded");
+    }
+}

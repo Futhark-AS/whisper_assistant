@@ -69,3 +69,93 @@ impl AppPaths {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AppPaths;
+
+    #[test]
+    fn resolve_sets_expected_contract_filenames() {
+        let paths = AppPaths::resolve().expect("resolve");
+        assert_eq!(
+            paths
+                .config_file
+                .file_name()
+                .and_then(|v| v.to_str())
+                .expect("filename"),
+            "config.toml"
+        );
+        assert_eq!(
+            paths
+                .history_db
+                .file_name()
+                .and_then(|v| v.to_str())
+                .expect("filename"),
+            "history.sqlite3"
+        );
+
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                paths
+                    .autostart_file
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .expect("filename"),
+                "io.quedo.daemon.plist"
+            );
+        } else {
+            assert_eq!(
+                paths
+                    .autostart_file
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .expect("filename"),
+                "quedo-daemon.desktop"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_dirs_creates_expected_hierarchy() {
+        let temp_dir = tempfile::TempDir::new().expect("tempdir");
+        let autostart_file = if cfg!(target_os = "macos") {
+            temp_dir
+                .path()
+                .join("Library")
+                .join("LaunchAgents")
+                .join("io.quedo.daemon.plist")
+        } else {
+            temp_dir
+                .path()
+                .join(".config")
+                .join("autostart")
+                .join("quedo-daemon.desktop")
+        };
+
+        let paths = AppPaths {
+            config_dir: temp_dir.path().join("config"),
+            data_dir: temp_dir.path().join("data"),
+            cache_dir: temp_dir.path().join("cache"),
+            logs_dir: temp_dir.path().join("cache").join("logs"),
+            state_dir: temp_dir.path().join("cache").join("fw-state"),
+            config_file: temp_dir.path().join("config").join("config.toml"),
+            history_db: temp_dir.path().join("data").join("history.sqlite3"),
+            autostart_file,
+        };
+
+        paths.ensure_dirs().expect("ensure dirs");
+
+        assert!(paths.config_dir.is_dir());
+        assert!(paths.data_dir.is_dir());
+        assert!(paths.cache_dir.is_dir());
+        assert!(paths.logs_dir.is_dir());
+        assert!(paths.state_dir.is_dir());
+        assert!(
+            paths
+                .autostart_file
+                .parent()
+                .expect("autostart parent")
+                .is_dir()
+        );
+    }
+}

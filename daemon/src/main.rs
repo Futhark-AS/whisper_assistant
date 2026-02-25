@@ -8,6 +8,8 @@ mod error;
 mod history;
 mod output;
 mod runtime;
+#[cfg(test)]
+mod test_support;
 mod transcription;
 mod ui;
 
@@ -69,5 +71,43 @@ fn run() -> AppResult<()> {
             println!("{report}");
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn module_re_exports_are_reachable() {
+        let _bootstrap: fn(&crate::bootstrap::AppPaths) -> crate::error::AppResult<std::path::PathBuf> =
+            crate::bootstrap::bootstrap_env;
+        let _config_load: fn(
+            &crate::bootstrap::AppPaths,
+            &crate::config::CliOverrides,
+        ) -> crate::error::AppResult<crate::config::AppConfig> = crate::config::load_config;
+        let _runtime_install: fn(
+            &crate::bootstrap::AppPaths,
+        ) -> crate::error::AppResult<std::path::PathBuf> = crate::runtime::install_autostart;
+        let _runtime_status: fn(
+            &crate::config::AppConfig,
+            &crate::bootstrap::AppPaths,
+        ) -> crate::error::AppResult<String> = crate::runtime::status_report;
+        let _capture_ctor: fn(Option<String>) -> crate::capture::MicrophoneCapture =
+            crate::capture::MicrophoneCapture::new;
+        let _transcribe_job: fn(
+            &crate::transcription::FrankenEngine,
+            std::path::PathBuf,
+            std::path::PathBuf,
+            &crate::config::TranscriptionConfig,
+        ) -> crate::error::AppResult<crate::transcription::TranscriptResult> =
+            crate::transcription::run_transcription_job;
+        let _doctor: fn(
+            &crate::bootstrap::AppPaths,
+            &crate::config::AppConfig,
+        ) -> crate::doctor::DoctorReport = crate::doctor::run_doctor;
+        let _history_ctor: fn(std::path::PathBuf) -> crate::history::HistoryStore =
+            crate::history::HistoryStore::new;
+        let _clipboard_write: fn(&str) -> crate::error::AppResult<()> =
+            crate::output::ClipboardOutput::write_text;
+        let _notifier_ctor: fn(bool) -> crate::ui::Notifier = crate::ui::Notifier::new;
     }
 }

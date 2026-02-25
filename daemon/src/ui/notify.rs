@@ -21,3 +21,20 @@ impl Notifier {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Notifier;
+
+    #[test]
+    fn disabled_notifier_is_noop_success() {
+        let notifier = Notifier::new(false);
+        notifier.notify("Title", "Body").expect("disabled notify");
+    }
+
+    #[test]
+    fn enabled_notifier_does_not_propagate_backend_errors() {
+        let notifier = Notifier::new(true);
+        notifier.notify("Title", "Body").expect("enabled notify");
+    }
+}

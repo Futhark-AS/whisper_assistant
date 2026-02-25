@@ -196,3 +196,301 @@ fn parse_output_mode(value: &str) -> Option<OutputMode> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_cli_overrides, apply_env_overrides, load_config, parse_backend_kind, parse_bool,
+        parse_output_mode, validate, CliOverrides,
+    };
+    use crate::bootstrap::paths::AppPaths;
+    use crate::config::schema::{AppConfig, OutputMode};
+    use crate::error::AppError;
+    use franken_whisper::BackendKind;
+    use std::path::{Path, PathBuf};
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let old = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+
+        fn clear(key: &'static str) -> Self {
+            let old = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = self.old.as_ref() {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn paths_for(root: &Path) -> AppPaths {
+        AppPaths {
+            config_dir: root.join("config"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            logs_dir: root.join("cache/logs"),
+            state_dir: root.join("cache/fw-state"),
+            config_file: root.join("config/config.toml"),
+            history_db: root.join("data/history.sqlite3"),
+            autostart_file: root.join("autostart/quedo-daemon.desktop"),
+        }
+    }
+
+    fn clear_quedo_env() -> Vec<EnvVarGuard> {
+        [
+            "QUEDO_BACKEND",
+            "QUEDO_MODEL_ID",
+            "QUEDO_LANGUAGE",
+            "QUEDO_TRANSLATE",
+            "QUEDO_DIARIZE",
+            "QUEDO_TIMEOUT_SECONDS",
+            "QUEDO_OUTPUT_MODE",
+            "QUEDO_HOTKEY_BINDING",
+            "QUEDO_HISTORY_DB_PATH",
+            "QUEDO_AUTOSTART_ENABLED",
+            "QUEDO_LOG_LEVEL",
+            "QUEDO_MAX_RECORDING_SECONDS",
+        ]
+        .iter()
+        .map(|key| EnvVarGuard::clear(key))
+        .collect()
+    }
+
+    #[test]
+    fn missing_config_file_writes_defaults() {
+        let _guard = crate::test_support::lock_env();
+        let _clean = clear_quedo_env();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let paths = paths_for(tmp.path());
+        paths.ensure_dirs().expect("dirs");
+        assert!(!paths.config_file.exists());
+
+        let config = load_config(&paths, &CliOverrides::default()).expect("load config");
+        assert!(paths.config_file.exists());
+        assert_eq!(config.history.db_path, Some(paths.history_db.clone()));
+    }
+
+    #[test]
+    fn precedence_toml_then_env_then_cli() {
+        let _guard = crate::test_support::lock_env();
+        let _clean = clear_quedo_env();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let paths = paths_for(tmp.path());
+        paths.ensure_dirs().expect("dirs");
+        let config_toml = r#"
+[transcription]
+backend = "auto"
+model_id = "from_toml"
+timeout_seconds = 11
+diarize = false
+translate = false
+language = "de"
+
+[output]
+mode = "disabled"
+"#;
+        std::fs::write(&paths.config_file, config_toml).expect("write config");
+
+        let _backend = EnvVarGuard::set("QUEDO_BACKEND", "insanely_fast");
+        let _model = EnvVarGuard::set("QUEDO_MODEL_ID", "from_env");
+        let _timeout = EnvVarGuard::set("QUEDO_TIMEOUT_SECONDS", "22");
+        let _diarize = EnvVarGuard::set("QUEDO_DIARIZE", "true");
+
+        let overrides = CliOverrides {
+            backend: Some(BackendKind::WhisperCpp),
+            model_id: Some("from_cli".to_owned()),
+            timeout_seconds: Some(33),
+            diarize: Some(false),
+            output_mode: Some(OutputMode::ClipboardOnly),
+            ..CliOverrides::default()
+        };
+
+        let config = load_config(&paths, &overrides).expect("load config");
+        assert_eq!(config.transcription.backend, BackendKind::WhisperCpp);
+        assert_eq!(config.transcription.model_id.as_deref(), Some("from_cli"));
+        assert_eq!(config.transcription.timeout_seconds, 33);
+        assert!(!config.transcription.diarize);
+        assert_eq!(config.output.mode, OutputMode::ClipboardOnly);
+    }
+
+    #[test]
+    fn validate_rejects_zero_timeout_and_max_recording() {
+        let mut config = AppConfig::default();
+        config.transcription.timeout_seconds = 0;
+        assert!(matches!(validate(&config), Err(AppError::Config(message)) if message.contains("timeout_seconds")));
+
+        config.transcription.timeout_seconds = 1;
+        config.audio.max_recording_seconds = 0;
+        assert!(
+            matches!(validate(&config), Err(AppError::Config(message)) if message.contains("max_recording_seconds"))
+        );
+    }
+
+    #[test]
+    fn missing_optional_fields_are_filled_from_defaults() {
+        let _guard = crate::test_support::lock_env();
+        let _clean = clear_quedo_env();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let paths = paths_for(tmp.path());
+        paths.ensure_dirs().expect("dirs");
+        std::fs::write(
+            &paths.config_file,
+            r#"[transcription]
+timeout_seconds = 99
+"#,
+        )
+        .expect("write");
+
+        let config = load_config(&paths, &CliOverrides::default()).expect("load");
+        assert_eq!(config.transcription.timeout_seconds, 99);
+        assert_eq!(config.output.mode, OutputMode::ClipboardOnly);
+        assert_eq!(config.hotkey.binding, "Ctrl+Shift+Space");
+    }
+
+    #[test]
+    fn parse_type_mismatch_fails() {
+        let _guard = crate::test_support::lock_env();
+        let _clean = clear_quedo_env();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let paths = paths_for(tmp.path());
+        paths.ensure_dirs().expect("dirs");
+        std::fs::write(
+            &paths.config_file,
+            r#"[transcription]
+timeout_seconds = "abc"
+"#,
+        )
+        .expect("write");
+
+        let error = load_config(&paths, &CliOverrides::default()).expect_err("must fail");
+        assert!(matches!(error, AppError::TomlParse(_)));
+    }
+
+    #[test]
+    fn parse_bool_supports_canonical_values() {
+        let truthy = ["1", "true", "yes", "on", " TRUE "];
+        let falsy = ["0", "false", "no", "off", " Off "];
+        for value in truthy {
+            assert_eq!(parse_bool(value), Some(true), "{value}");
+        }
+        for value in falsy {
+            assert_eq!(parse_bool(value), Some(false), "{value}");
+        }
+        assert_eq!(parse_bool("maybe"), None);
+    }
+
+    #[test]
+    fn backend_parser_supports_labels_and_aliases() {
+        assert_eq!(parse_backend_kind("auto"), Some(BackendKind::Auto));
+        assert_eq!(
+            parse_backend_kind("whisper_cpp"),
+            Some(BackendKind::WhisperCpp)
+        );
+        assert_eq!(
+            parse_backend_kind("whisper-cpp"),
+            Some(BackendKind::WhisperCpp)
+        );
+        assert_eq!(
+            parse_backend_kind("insanely_fast"),
+            Some(BackendKind::InsanelyFast)
+        );
+        assert_eq!(
+            parse_backend_kind("insanely-fast"),
+            Some(BackendKind::InsanelyFast)
+        );
+        assert_eq!(
+            parse_backend_kind("whisper_diarization"),
+            Some(BackendKind::WhisperDiarization)
+        );
+        assert_eq!(
+            parse_backend_kind("whisper-diarization"),
+            Some(BackendKind::WhisperDiarization)
+        );
+        assert_eq!(parse_backend_kind("nope"), None);
+    }
+
+    #[test]
+    fn output_mode_parser_supports_aliases() {
+        assert_eq!(parse_output_mode("clipboard_only"), Some(OutputMode::ClipboardOnly));
+        assert_eq!(parse_output_mode("clipboard-only"), Some(OutputMode::ClipboardOnly));
+        assert_eq!(parse_output_mode("disabled"), Some(OutputMode::Disabled));
+        assert_eq!(parse_output_mode("none"), Some(OutputMode::Disabled));
+        assert_eq!(parse_output_mode("other"), None);
+    }
+
+    #[test]
+    fn env_overrides_update_fields() {
+        let _guard = crate::test_support::lock_env();
+        let _clean = clear_quedo_env();
+        let _backend = EnvVarGuard::set("QUEDO_BACKEND", "whisper_cpp");
+        let _model = EnvVarGuard::set("QUEDO_MODEL_ID", "m1");
+        let _language = EnvVarGuard::set("QUEDO_LANGUAGE", "en");
+        let _translate = EnvVarGuard::set("QUEDO_TRANSLATE", "yes");
+        let _diarize = EnvVarGuard::set("QUEDO_DIARIZE", "true");
+        let _timeout = EnvVarGuard::set("QUEDO_TIMEOUT_SECONDS", "77");
+        let _output = EnvVarGuard::set("QUEDO_OUTPUT_MODE", "disabled");
+        let _hotkey = EnvVarGuard::set("QUEDO_HOTKEY_BINDING", "Ctrl+Alt+Q");
+        let _history = EnvVarGuard::set("QUEDO_HISTORY_DB_PATH", "/tmp/h.sqlite3");
+        let _autostart = EnvVarGuard::set("QUEDO_AUTOSTART_ENABLED", "1");
+        let _log = EnvVarGuard::set("QUEDO_LOG_LEVEL", "debug");
+        let _max = EnvVarGuard::set("QUEDO_MAX_RECORDING_SECONDS", "123");
+
+        let mut config = AppConfig::default();
+        apply_env_overrides(&mut config);
+        assert_eq!(config.transcription.backend, BackendKind::WhisperCpp);
+        assert_eq!(config.transcription.model_id.as_deref(), Some("m1"));
+        assert_eq!(config.transcription.language.as_deref(), Some("en"));
+        assert!(config.transcription.translate);
+        assert!(config.transcription.diarize);
+        assert_eq!(config.transcription.timeout_seconds, 77);
+        assert_eq!(config.output.mode, OutputMode::Disabled);
+        assert_eq!(config.hotkey.binding, "Ctrl+Alt+Q");
+        assert_eq!(
+            config.history.db_path.as_ref(),
+            Some(&PathBuf::from("/tmp/h.sqlite3"))
+        );
+        assert!(config.service.autostart_enabled);
+        assert_eq!(config.diagnostics.log_level, "debug");
+        assert_eq!(config.audio.max_recording_seconds, 123);
+    }
+
+    #[test]
+    fn cli_overrides_update_fields() {
+        let mut config = AppConfig::default();
+        let overrides = CliOverrides {
+            backend: Some(BackendKind::InsanelyFast),
+            model_id: Some("model-x".to_owned()),
+            language: Some("fr".to_owned()),
+            timeout_seconds: Some(66),
+            diarize: Some(true),
+            translate: Some(true),
+            hotkey_binding: Some("Ctrl+Shift+R".to_owned()),
+            output_mode: Some(OutputMode::Disabled),
+            ..CliOverrides::default()
+        };
+        apply_cli_overrides(&mut config, &overrides);
+        assert_eq!(config.transcription.backend, BackendKind::InsanelyFast);
+        assert_eq!(config.transcription.model_id.as_deref(), Some("model-x"));
+        assert_eq!(config.transcription.language.as_deref(), Some("fr"));
+        assert_eq!(config.transcription.timeout_seconds, 66);
+        assert!(config.transcription.diarize);
+        assert!(config.transcription.translate);
+        assert_eq!(config.hotkey.binding, "Ctrl+Shift+R");
+        assert_eq!(config.output.mode, OutputMode::Disabled);
+    }
+}

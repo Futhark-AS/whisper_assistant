@@ -79,3 +79,132 @@ fn handle_missing_schema(error: rusqlite::Error) -> AppResult<Vec<RunSummary>> {
         _ => Err(AppError::Sqlite(error)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_backend, HistoryStore};
+    use franken_whisper::BackendKind;
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+
+    fn build_store(path: PathBuf) -> HistoryStore {
+        HistoryStore::new(path)
+    }
+
+    #[test]
+    fn backend_parser_maps_known_values_and_defaults_unknown() {
+        assert_eq!(parse_backend("auto"), BackendKind::Auto);
+        assert_eq!(parse_backend("whisper_cpp"), BackendKind::WhisperCpp);
+        assert_eq!(parse_backend("insanely_fast"), BackendKind::InsanelyFast);
+        assert_eq!(
+            parse_backend("whisper_diarization"),
+            BackendKind::WhisperDiarization
+        );
+        assert_eq!(parse_backend("unknown"), BackendKind::Auto);
+    }
+
+    #[test]
+    fn returns_empty_when_db_missing() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let db = temp.path().join("missing.sqlite3");
+        let store = build_store(db);
+        let runs = store.list_recent_runs(10).expect("list");
+        assert!(runs.is_empty());
+        assert!(store.latest_run().expect("latest").is_none());
+    }
+
+    #[test]
+    fn handles_missing_schema_gracefully() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let db = temp.path().join("history.sqlite3");
+        let _ = Connection::open(&db).expect("create db");
+        let store = build_store(db);
+        let runs = store.list_recent_runs(10).expect("list");
+        assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn maps_rows_and_truncates_preview_to_140_chars() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let db = temp.path().join("history.sqlite3");
+        let conn = Connection::open(&db).expect("open");
+        conn.execute_batch(
+            "CREATE TABLE runs (
+                id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                transcript TEXT NOT NULL
+            );",
+        )
+        .expect("schema");
+        let long = "x".repeat(200);
+        conn.execute(
+            "INSERT INTO runs (id, started_at, finished_at, backend, transcript)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                "run-1",
+                "2026-02-25T00:00:00Z",
+                "2026-02-25T00:00:01Z",
+                "whisper_cpp",
+                &long,
+            ),
+        )
+        .expect("insert");
+
+        let store = build_store(db);
+        let runs = store.list_recent_runs(5).expect("list");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].backend, BackendKind::WhisperCpp);
+        assert_eq!(runs[0].transcript_preview.len(), 140);
+    }
+
+    #[test]
+    fn latest_run_returns_none_or_newest_row() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let db = temp.path().join("history.sqlite3");
+        let conn = Connection::open(&db).expect("open");
+        conn.execute_batch(
+            "CREATE TABLE runs (
+                id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                transcript TEXT NOT NULL
+            );",
+        )
+        .expect("schema");
+
+        let store = build_store(db.clone());
+        assert!(store.latest_run().expect("latest").is_none());
+
+        conn.execute(
+            "INSERT INTO runs (id, started_at, finished_at, backend, transcript)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                "old",
+                "2026-02-25T00:00:00Z",
+                "2026-02-25T00:00:01Z",
+                "auto",
+                "one",
+            ),
+        )
+        .expect("insert old");
+        conn.execute(
+            "INSERT INTO runs (id, started_at, finished_at, backend, transcript)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                "new",
+                "2026-02-25T01:00:00Z",
+                "2026-02-25T01:00:01Z",
+                "insanely_fast",
+                "two",
+            ),
+        )
+        .expect("insert new");
+
+        let latest = store.latest_run().expect("latest").expect("some");
+        assert_eq!(latest.run_id, "new");
+        assert_eq!(latest.backend, BackendKind::InsanelyFast);
+    }
+}

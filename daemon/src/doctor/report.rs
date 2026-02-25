@@ -72,3 +72,42 @@ fn status_label(status: CheckStatus) -> &'static str {
         CheckStatus::Skip => "SKIP",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckResult, CheckStatus, DoctorReport, DoctorState};
+
+    #[test]
+    fn render_text_contains_table_and_remediation() {
+        let report = DoctorReport {
+            generated_at_rfc3339: "2026-02-25T00:00:00Z".to_owned(),
+            state: DoctorState::Degraded,
+            checks: vec![
+                CheckResult {
+                    name: "ffmpeg".to_owned(),
+                    status: CheckStatus::Pass,
+                    detail: "ok".to_owned(),
+                    required: true,
+                    remediation: None,
+                },
+                CheckResult {
+                    name: "whisper-cli".to_owned(),
+                    status: CheckStatus::Fail,
+                    detail: "missing".to_owned(),
+                    required: true,
+                    remediation: Some("install whisper.cpp".to_owned()),
+                },
+            ],
+        };
+
+        let text = report.render_text();
+        assert!(text.contains("Doctor state: Degraded"));
+        assert!(text.contains("CHECK"));
+        assert!(text.contains("STATUS"));
+        assert!(text.contains("REQUIRED"));
+        assert!(text.contains("DETAIL"));
+        assert!(text.contains("PASS"));
+        assert!(text.contains("FAIL"));
+        assert!(text.contains("remediation: install whisper.cpp"));
+    }
+}
