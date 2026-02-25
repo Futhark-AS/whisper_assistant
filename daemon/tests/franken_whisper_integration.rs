@@ -2,13 +2,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use franken_whisper::BackendKind;
-use quedo_daemon::config::TranscriptionConfig;
+use quedo_daemon::bootstrap::{bootstrap_env, AppPaths};
+use quedo_daemon::config::{AppConfig, OutputMode, TranscriptionConfig};
+use quedo_daemon::controller::events::{ControllerEvent, ControllerOutput};
 use quedo_daemon::controller::queue::SingleFlightQueue;
-use quedo_daemon::error::AppError;
+use quedo_daemon::controller::state::ControllerState;
+use quedo_daemon::controller::{run_controller_loop, ControllerContext};
 use quedo_daemon::history::HistoryStore;
-use quedo_daemon::transcription::{run_transcription_job, FrankenEngine};
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -148,6 +151,96 @@ fn normalize_text(raw: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn word_error_rate(reference: &str, hypothesis: &str) -> f64 {
+    let reference_words: Vec<&str> = reference.split_whitespace().collect();
+    let hypothesis_words: Vec<&str> = hypothesis.split_whitespace().collect();
+
+    if reference_words.is_empty() {
+        return if hypothesis_words.is_empty() {
+            0.0
+        } else {
+            1.0
+        };
+    }
+
+    let rows = reference_words.len() + 1;
+    let cols = hypothesis_words.len() + 1;
+    let mut dp = vec![vec![0_usize; cols]; rows];
+
+    for (row, item) in dp.iter_mut().enumerate() {
+        item[0] = row;
+    }
+    for (col, item) in dp[0].iter_mut().enumerate() {
+        *item = col;
+    }
+
+    for row in 1..rows {
+        for col in 1..cols {
+            let substitution_cost = if reference_words[row - 1] == hypothesis_words[col - 1] {
+                0
+            } else {
+                1
+            };
+            let substitution = dp[row - 1][col - 1] + substitution_cost;
+            let deletion = dp[row - 1][col] + 1;
+            let insertion = dp[row][col - 1] + 1;
+            dp[row][col] = substitution.min(deletion).min(insertion);
+        }
+    }
+
+    dp[rows - 1][cols - 1] as f64 / reference_words.len() as f64
+}
+
+fn make_paths(root: &Path) -> AppPaths {
+    AppPaths {
+        config_dir: root.join("config"),
+        data_dir: root.join("data"),
+        cache_dir: root.join("cache"),
+        logs_dir: root.join("cache/logs"),
+        state_dir: root.join("cache/fw-state"),
+        config_file: root.join("config/config.toml"),
+        history_db: root.join("data/history.sqlite3"),
+        autostart_file: root.join("autostart/quedo-daemon.desktop"),
+    }
+}
+
+fn spawn_controller(
+    context: ControllerContext,
+) -> (
+    crossbeam_channel::Sender<ControllerEvent>,
+    crossbeam_channel::Receiver<ControllerOutput>,
+    std::thread::JoinHandle<quedo_daemon::error::AppResult<()>>,
+) {
+    let (event_tx, event_rx) = crossbeam_channel::unbounded::<ControllerEvent>();
+    let (output_tx, output_rx) = crossbeam_channel::unbounded::<ControllerOutput>();
+    let loop_event_tx = event_tx.clone();
+    let join = std::thread::spawn(move || {
+        run_controller_loop(context, event_rx, loop_event_tx, output_tx)
+    });
+    (event_tx, output_rx, join)
+}
+
+fn recv_until<F>(
+    output_rx: &crossbeam_channel::Receiver<ControllerOutput>,
+    timeout: Duration,
+    predicate: F,
+) -> ControllerOutput
+where
+    F: Fn(&ControllerOutput) -> bool,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        let now = Instant::now();
+        let remaining = deadline.saturating_duration_since(now);
+        let output = output_rx.recv_timeout(remaining).unwrap_or_else(|_| {
+            panic!("timed out waiting for controller output after {timeout:?}")
+        });
+        if predicate(&output) {
+            return output;
+        }
+    }
 }
 
 fn run_whisper_cli_to_text(
@@ -312,6 +405,25 @@ fn doctor_command_json_output_matches_schema_with_real_binaries() {
         assert!(check.get("detail").and_then(Value::as_str).is_some());
         assert!(check.get("required").and_then(Value::as_bool).is_some());
     }
+
+    for required_name in ["ffmpeg", "ffprobe", "whisper-cli"] {
+        let check = checks
+            .iter()
+            .find(|check| check.get("name").and_then(Value::as_str) == Some(required_name))
+            .unwrap_or_else(|| panic!("required doctor check `{required_name}` is missing"));
+        assert_eq!(
+            check.get("required").and_then(Value::as_bool),
+            Some(true),
+            "check `{required_name}` should be required"
+        );
+        assert!(
+            matches!(
+                check.get("status").and_then(Value::as_str),
+                Some("pass" | "warn" | "fail")
+            ),
+            "required check `{required_name}` must not be skipped: {check:?}"
+        );
+    }
 }
 
 #[test]
@@ -368,9 +480,12 @@ fn real_whisper_cli_transcription_is_non_empty() {
 
     let transcript =
         run_whisper_cli_to_text(&fixture, &model, &output_prefix, &path_with_local_bin());
+    let reference =
+        "And so my fellow Americans ask not what your country can do for you ask what you can do for your country";
+    let wer = word_error_rate(&normalize_text(reference), &normalize_text(&transcript));
     assert!(
-        !transcript.trim().is_empty(),
-        "whisper-cli transcript should not be empty"
+        wer <= 0.35,
+        "whisper-cli transcript WER too high: {wer:.4}, transcript={transcript:?}"
     );
 }
 
@@ -437,9 +552,43 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
     let fixture = resolve_fixture_wav().expect("fixture");
     let model = resolve_model_path().expect("model");
     let temp = tempfile::TempDir::new().expect("tempdir");
-    let db_path = temp.path().join("history.sqlite3");
+    let wrappers = temp.path().join("bin");
+    fs::create_dir_all(&wrappers).expect("mkdir wrappers");
 
-    let config = TranscriptionConfig {
+    write_arecord_fixture_wrapper(&wrappers, &fixture);
+    write_wrapper(
+        &wrappers,
+        "ffmpeg",
+        &which::which("ffmpeg").expect("ffmpeg path"),
+    );
+    write_wrapper(
+        &wrappers,
+        "ffprobe",
+        &which::which("ffprobe").expect("ffprobe path"),
+    );
+    write_wrapper(
+        &wrappers,
+        "whisper-cli",
+        &which::which("whisper-cli").expect("whisper-cli path"),
+    );
+
+    let _path_guard = EnvVarGuard::set(
+        "PATH",
+        format!(
+            "{}:{}",
+            wrappers.display(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
+
+    let paths = make_paths(temp.path());
+    paths.ensure_dirs().expect("ensure dirs");
+    bootstrap_env(&paths).expect("bootstrap env");
+
+    let mut config = AppConfig::default();
+    config.output.mode = OutputMode::Disabled;
+    config.audio.retain_audio = true;
+    config.transcription = TranscriptionConfig {
         backend: BackendKind::WhisperCpp,
         model_id: Some(model.display().to_string()),
         language: Some("en".to_owned()),
@@ -447,20 +596,92 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
         ..TranscriptionConfig::default()
     };
 
-    let engine = FrankenEngine::new().expect("engine init");
-    let result = run_transcription_job(&engine, fixture, db_path.clone(), &config)
-        .expect("full pipeline transcription");
+    let context = ControllerContext {
+        config: config.clone(),
+        paths: paths.clone(),
+    };
+    let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    let normalized_transcript = normalize_text(&result.transcript);
+    assert!(matches!(
+        recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Idle)
+            )
+        }),
+        ControllerOutput::StateChanged(ControllerState::Idle)
+    ));
+
+    event_tx
+        .send(ControllerEvent::Toggle)
+        .expect("toggle start");
+    assert!(matches!(
+        recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Recording)
+            )
+        }),
+        ControllerOutput::StateChanged(ControllerState::Recording)
+    ));
+    std::thread::sleep(Duration::from_millis(250));
+
+    event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
+    assert!(matches!(
+        recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Processing)
+            )
+        }),
+        ControllerOutput::StateChanged(ControllerState::Processing)
+    ));
+
+    let transcript = match recv_until(&output_rx, Duration::from_secs(120), |output| {
+        matches!(output, ControllerOutput::TranscriptReady(_))
+    }) {
+        ControllerOutput::TranscriptReady(result) => result,
+        other => panic!("expected transcript output, got {other:?}"),
+    };
+    let normalized_transcript = normalize_text(&transcript.transcript);
     assert!(
         normalized_transcript.contains("ask not what your country can do for you"),
         "unexpected transcript: {}",
-        result.transcript
+        transcript.transcript
     );
 
-    assert!(db_path.exists(), "expected persistence file to be created");
-    let metadata = fs::metadata(&db_path).expect("db metadata");
-    assert!(metadata.len() > 0, "persistence file should not be empty");
+    assert!(matches!(
+        recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Idle)
+            )
+        }),
+        ControllerOutput::StateChanged(ControllerState::Idle)
+    ));
+
+    assert!(
+        paths.history_db.exists(),
+        "expected history database to be created at {}",
+        paths.history_db.display()
+    );
+    let history_metadata = fs::metadata(&paths.history_db).expect("history db metadata");
+    assert!(
+        history_metadata.len() > 0,
+        "history database should not be empty"
+    );
+
+    event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
+    assert!(matches!(
+        recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(output, ControllerOutput::Stopped)
+        }),
+        ControllerOutput::Stopped
+    ));
+    controller_join
+        .join()
+        .expect("join controller")
+        .expect("controller exit");
 }
 
 #[test]
@@ -541,41 +762,116 @@ fn missing_ffmpeg_produces_graceful_transcription_error() {
 
     let _lock = acquire_env_lock();
 
+    let fixture = resolve_fixture_wav().expect("fixture");
+    let model = resolve_model_path().expect("model");
     let temp = tempfile::TempDir::new().expect("tempdir");
     let wrappers = temp.path().join("bin");
     fs::create_dir_all(&wrappers).expect("create wrappers dir");
+
+    write_arecord_fixture_wrapper(&wrappers, &fixture);
     write_wrapper(
         &wrappers,
         "whisper-cli",
         &which::which("whisper-cli").expect("whisper-cli path"),
     );
+    write_script(
+        &wrappers.join("ffmpeg"),
+        "#!/bin/sh\necho 'ffmpeg missing' >&2\nexit 127\n",
+    );
+    write_script(
+        &wrappers.join("ffprobe"),
+        "#!/bin/sh\necho 'ffprobe missing' >&2\nexit 127\n",
+    );
 
-    let _path_guard = EnvVarGuard::set("PATH", wrappers.display().to_string());
+    let _path_guard = EnvVarGuard::set(
+        "PATH",
+        format!(
+            "{}:{}",
+            wrappers.display(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
 
-    let fixture = resolve_fixture_wav().expect("fixture");
-    let model = resolve_model_path().expect("model");
-    let db_path = temp.path().join("history.sqlite3");
+    let paths = make_paths(temp.path());
+    paths.ensure_dirs().expect("ensure dirs");
+    bootstrap_env(&paths).expect("bootstrap env");
 
-    let config = TranscriptionConfig {
+    let mut config = AppConfig::default();
+    config.output.mode = OutputMode::Disabled;
+    config.audio.retain_audio = true;
+    config.transcription = TranscriptionConfig {
         backend: BackendKind::WhisperCpp,
         model_id: Some(model.display().to_string()),
         language: Some("en".to_owned()),
         timeout_seconds: 120,
         ..TranscriptionConfig::default()
     };
+    let context = ControllerContext {
+        config,
+        paths: paths.clone(),
+    };
+    let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    let engine = FrankenEngine::new().expect("engine init");
-    let error = run_transcription_job(&engine, fixture, db_path, &config).expect_err("must fail");
-
-    assert!(
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
         matches!(
-            error,
-            AppError::Transcription(ref message)
-            if message.to_ascii_lowercase().contains("ffmpeg")
-                || message.to_ascii_lowercase().contains("normalize")
-        ),
-        "unexpected error: {error}"
+            output,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+        )
+    });
+
+    event_tx
+        .send(ControllerEvent::Toggle)
+        .expect("toggle start");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Recording)
+        )
+    });
+    std::thread::sleep(Duration::from_millis(250));
+    event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Processing)
+        )
+    });
+
+    let degraded_reason = match recv_until(&output_rx, Duration::from_secs(60), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Degraded(_))
+        )
+    }) {
+        ControllerOutput::StateChanged(ControllerState::Degraded(reason)) => reason,
+        other => panic!("expected degraded state, got {other:?}"),
+    };
+    assert!(
+        degraded_reason.to_ascii_lowercase().contains("ffmpeg")
+            || degraded_reason.to_ascii_lowercase().contains("normalize"),
+        "unexpected degraded reason: {degraded_reason}"
     );
+
+    let degraded_note = match recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::Notification(_))
+    }) {
+        ControllerOutput::Notification(message) => message,
+        other => panic!("expected notification, got {other:?}"),
+    };
+    assert!(
+        degraded_note.to_ascii_lowercase().contains("ffmpeg")
+            || degraded_note.to_ascii_lowercase().contains("normalize"),
+        "unexpected degraded notification: {degraded_note}"
+    );
+
+    event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::Stopped)
+    });
+    controller_join
+        .join()
+        .expect("join controller")
+        .expect("controller exit");
 }
 
 #[test]
@@ -588,58 +884,224 @@ fn corrupt_and_empty_wav_fail_gracefully() {
     let _lock = acquire_env_lock();
     let _path_guard = EnvVarGuard::set("PATH", path_with_local_bin());
 
+    let fixture = resolve_fixture_wav().expect("fixture");
     let model = resolve_model_path().expect("model");
     let temp = tempfile::TempDir::new().expect("tempdir");
 
-    let empty_wav = temp.path().join("empty.wav");
-    fs::write(&empty_wav, []).expect("write empty wav");
+    let empty_wav = temp.path().join("empty_header_only.wav");
+    let writer = hound::WavWriter::create(
+        &empty_wav,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .expect("create empty wav");
+    writer.finalize().expect("finalize empty wav");
 
-    let corrupt_wav = temp.path().join("corrupt.wav");
+    let corrupt_wav = temp.path().join("corrupt_random_bytes.wav");
     fs::write(
         &corrupt_wav,
         [0x13_u8, 0x37, 0x42, 0x00, 0x99, 0xEF, 0xAA, 0xBB],
     )
     .expect("write corrupt wav");
 
-    let config = TranscriptionConfig {
+    let wrappers = temp.path().join("bin");
+    fs::create_dir_all(&wrappers).expect("create wrappers dir");
+    write_arecord_sequence_wrapper(
+        &wrappers,
+        &empty_wav,
+        &corrupt_wav,
+        &fixture,
+        &temp.path().join("arecord-count"),
+    );
+    write_wrapper(
+        &wrappers,
+        "ffmpeg",
+        &which::which("ffmpeg").expect("ffmpeg path"),
+    );
+    write_wrapper(
+        &wrappers,
+        "ffprobe",
+        &which::which("ffprobe").expect("ffprobe path"),
+    );
+    write_wrapper(
+        &wrappers,
+        "whisper-cli",
+        &which::which("whisper-cli").expect("whisper-cli path"),
+    );
+
+    let _path_guard = EnvVarGuard::set(
+        "PATH",
+        format!(
+            "{}:{}",
+            wrappers.display(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
+
+    let paths = make_paths(temp.path());
+    paths.ensure_dirs().expect("ensure dirs");
+    bootstrap_env(&paths).expect("bootstrap env");
+
+    let mut config = AppConfig::default();
+    config.output.mode = OutputMode::Disabled;
+    config.audio.retain_audio = true;
+    config.transcription = TranscriptionConfig {
         backend: BackendKind::WhisperCpp,
         model_id: Some(model.display().to_string()),
         language: Some("en".to_owned()),
         timeout_seconds: 120,
         ..TranscriptionConfig::default()
     };
+    let context = ControllerContext {
+        config,
+        paths: paths.clone(),
+    };
+    let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    let engine = FrankenEngine::new().expect("engine init");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+        )
+    });
 
-    for (input, db_name) in [
-        (&empty_wav, "empty.sqlite3"),
-        (&corrupt_wav, "corrupt.sqlite3"),
-    ] {
-        let db_path = temp.path().join(db_name);
-        let error = run_transcription_job(&engine, input.to_path_buf(), db_path, &config)
-            .expect_err("invalid wav must fail");
+    let mut degraded_reasons = Vec::new();
+    for _ in 0..2 {
+        event_tx
+            .send(ControllerEvent::Toggle)
+            .expect("toggle start");
+        let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Recording)
+            )
+        });
+        std::thread::sleep(Duration::from_millis(250));
+        event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
+        let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Processing)
+            )
+        });
+        let degraded = match recv_until(&output_rx, Duration::from_secs(60), |output| {
+            matches!(
+                output,
+                ControllerOutput::StateChanged(ControllerState::Degraded(_))
+            )
+        }) {
+            ControllerOutput::StateChanged(ControllerState::Degraded(reason)) => reason,
+            other => panic!("expected degraded state, got {other:?}"),
+        };
+        degraded_reasons.push(degraded);
+    }
+
+    assert_eq!(degraded_reasons.len(), 2);
+    assert_ne!(
+        degraded_reasons[0], degraded_reasons[1],
+        "empty and corrupt WAV failures should produce distinct details"
+    );
+    for reason in &degraded_reasons {
         assert!(
-            matches!(error, AppError::Transcription(_)),
-            "unexpected error type: {error}"
+            reason.starts_with("transcription job failed:"),
+            "unexpected degraded reason format: {reason}"
         );
     }
+
+    event_tx
+        .send(ControllerEvent::Toggle)
+        .expect("toggle start");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Recording)
+        )
+    });
+    std::thread::sleep(Duration::from_millis(250));
+    event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Processing)
+        )
+    });
+
+    let transcript = match recv_until(&output_rx, Duration::from_secs(120), |output| {
+        matches!(output, ControllerOutput::TranscriptReady(_))
+    }) {
+        ControllerOutput::TranscriptReady(result) => result,
+        other => panic!("expected transcript output, got {other:?}"),
+    };
+    assert!(
+        normalize_text(&transcript.transcript).contains("ask not what your country can do for you"),
+        "recovery transcript unexpected: {}",
+        transcript.transcript
+    );
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(
+            output,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+        )
+    });
+
+    event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
+    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::Stopped)
+    });
+    controller_join
+        .join()
+        .expect("join controller")
+        .expect("controller exit");
 }
 
-fn write_wrapper(dir: &Path, name: &str, target: &Path) {
-    let script_path = dir.join(name);
-    let script = format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", target.display());
-    fs::write(&script_path, script).unwrap_or_else(|error| {
+fn write_script(script_path: &Path, script: &str) {
+    fs::write(script_path, script).unwrap_or_else(|error| {
         panic!("failed to write wrapper {}: {error}", script_path.display())
     });
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(&script_path)
+        let mut permissions = fs::metadata(script_path)
             .unwrap_or_else(|error| panic!("metadata {}: {error}", script_path.display()))
             .permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(&script_path, permissions)
+        fs::set_permissions(script_path, permissions)
             .unwrap_or_else(|error| panic!("chmod {}: {error}", script_path.display()));
     }
+}
+
+fn write_wrapper(dir: &Path, name: &str, target: &Path) {
+    let script_path = dir.join(name);
+    let script = format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", target.display());
+    write_script(&script_path, &script);
+}
+
+fn write_arecord_fixture_wrapper(dir: &Path, fixture: &Path) {
+    let script = format!(
+        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncp \"{}\" \"$out\"\nsleep 30\n",
+        fixture.display()
+    );
+    write_script(&dir.join("arecord"), &script);
+}
+
+fn write_arecord_sequence_wrapper(
+    dir: &Path,
+    empty_wav: &Path,
+    corrupt_wav: &Path,
+    valid_wav: &Path,
+    counter_file: &Path,
+) {
+    let script = format!(
+        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncount=0\nif [ -f \"{counter}\" ]; then count=$(cat \"{counter}\"); fi\nif [ \"$count\" -eq 0 ]; then src=\"{empty}\";\nelif [ \"$count\" -eq 1 ]; then src=\"{corrupt}\";\nelse src=\"{valid}\";\nfi\ncp \"$src\" \"$out\"\necho $((count+1)) > \"{counter}\"\nsleep 30\n",
+        counter = counter_file.display(),
+        empty = empty_wav.display(),
+        corrupt = corrupt_wav.display(),
+        valid = valid_wav.display()
+    );
+    write_script(&dir.join("arecord"), &script);
 }

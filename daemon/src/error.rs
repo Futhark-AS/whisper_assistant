@@ -52,32 +52,75 @@ mod tests {
     #[test]
     fn display_messages_cover_all_variants() {
         let cases = vec![
-            AppError::Io(std::io::Error::other("disk gone")),
-            AppError::TomlParse(toml::from_str::<toml::Value>("not= [valid").unwrap_err()),
-            AppError::TomlSerialize(toml::ser::Error::custom("serialize failed")),
-            AppError::Json(serde_json::from_str::<serde_json::Value>("{bad").unwrap_err()),
-            AppError::BinaryMissing {
-                binary: "ffmpeg".to_owned(),
-            },
-            AppError::Config("bad config".to_owned()),
-            AppError::Capture("capture boom".to_owned()),
-            AppError::Transcription("tx failed".to_owned()),
-            AppError::Clipboard("clipboard dead".to_owned()),
-            AppError::Controller("controller dead".to_owned()),
-            AppError::ChannelClosed("closed".to_owned()),
-            AppError::Install("install failed".to_owned()),
-            AppError::Sqlite(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error {
-                    code: rusqlite::ErrorCode::Unknown,
-                    extended_code: 1,
+            (
+                AppError::Io(std::io::Error::other("disk gone")),
+                "io error: disk gone",
+            ),
+            (
+                AppError::TomlParse(toml::from_str::<toml::Value>("not= [valid").unwrap_err()),
+                "toml parse error: ",
+            ),
+            (
+                AppError::TomlSerialize(toml::ser::Error::custom("serialize failed")),
+                "toml serialize error: serialize failed",
+            ),
+            (
+                AppError::Json(serde_json::from_str::<serde_json::Value>("{bad").unwrap_err()),
+                "json parse error: ",
+            ),
+            (
+                AppError::BinaryMissing {
+                    binary: "ffmpeg".to_owned(),
                 },
-                Some("sqlite boom".to_owned()),
-            )),
+                "binary `ffmpeg` missing from PATH",
+            ),
+            (
+                AppError::Config("bad config".to_owned()),
+                "invalid configuration: bad config",
+            ),
+            (
+                AppError::Capture("capture boom".to_owned()),
+                "capture failed: capture boom",
+            ),
+            (
+                AppError::Transcription("tx failed".to_owned()),
+                "transcription failed: tx failed",
+            ),
+            (
+                AppError::Clipboard("clipboard dead".to_owned()),
+                "clipboard output failed: clipboard dead",
+            ),
+            (
+                AppError::Controller("controller dead".to_owned()),
+                "controller error: controller dead",
+            ),
+            (
+                AppError::ChannelClosed("closed".to_owned()),
+                "channel closed: closed",
+            ),
+            (
+                AppError::Install("install failed".to_owned()),
+                "install failed: install failed",
+            ),
+            (
+                AppError::Sqlite(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error {
+                        code: rusqlite::ErrorCode::Unknown,
+                        extended_code: 1,
+                    },
+                    Some("sqlite boom".to_owned()),
+                )),
+                "sqlite error: ",
+            ),
         ];
 
-        for error in cases {
+        for (error, expected_prefix) in cases {
             let display = format!("{error}");
             let debug = format!("{error:?}");
+            assert!(
+                display.starts_with(expected_prefix),
+                "display message `{display}` did not start with `{expected_prefix}`"
+            );
             assert!(!display.trim().is_empty());
             assert!(!debug.trim().is_empty());
         }

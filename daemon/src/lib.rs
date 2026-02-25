@@ -22,6 +22,70 @@ use crate::doctor::run_doctor;
 use crate::error::AppResult;
 use crate::runtime::{install_autostart, run_app, status_report};
 
+trait CommandExecutor {
+    fn run(&self, config: crate::config::AppConfig, paths: AppPaths) -> AppResult<()>;
+    fn doctor(
+        &self,
+        paths: &AppPaths,
+        config: &crate::config::AppConfig,
+        json: bool,
+    ) -> AppResult<()>;
+    fn install(&self, paths: &AppPaths, config: &crate::config::AppConfig) -> AppResult<()>;
+    fn status(&self, paths: &AppPaths, config: &crate::config::AppConfig) -> AppResult<()>;
+}
+
+struct DefaultCommandExecutor;
+
+impl CommandExecutor for DefaultCommandExecutor {
+    fn run(&self, config: crate::config::AppConfig, paths: AppPaths) -> AppResult<()> {
+        run_app(config, paths)
+    }
+
+    fn doctor(
+        &self,
+        paths: &AppPaths,
+        config: &crate::config::AppConfig,
+        json: bool,
+    ) -> AppResult<()> {
+        let report = run_doctor(paths, config);
+        if json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            println!("{}", report.render_text());
+        }
+        Ok(())
+    }
+
+    fn install(&self, paths: &AppPaths, config: &crate::config::AppConfig) -> AppResult<()> {
+        let installed_path = install_autostart(paths)?;
+        println!("Installed autostart entry: {}", installed_path.display());
+
+        let report = run_doctor(paths, config);
+        println!("{}", report.render_text());
+        Ok(())
+    }
+
+    fn status(&self, paths: &AppPaths, config: &crate::config::AppConfig) -> AppResult<()> {
+        let report = status_report(config, paths)?;
+        println!("{report}");
+        Ok(())
+    }
+}
+
+fn execute_command<E: CommandExecutor>(
+    command: Command,
+    paths: AppPaths,
+    config: crate::config::AppConfig,
+    executor: &E,
+) -> AppResult<()> {
+    match command {
+        Command::Run => executor.run(config, paths),
+        Command::Doctor { json } => executor.doctor(&paths, &config, json),
+        Command::Install => executor.install(&paths, &config),
+        Command::Status => executor.status(&paths, &config),
+    }
+}
+
 pub fn run() -> AppResult<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -39,36 +103,95 @@ pub fn run() -> AppResult<()> {
 
     let config = load_config(&paths, &cli.to_overrides())?;
 
-    match cli.command {
-        Command::Run => run_app(config, paths),
-        Command::Doctor { json } => {
-            let report = run_doctor(&paths, &config);
-            if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
-            } else {
-                println!("{}", report.render_text());
-            }
-            Ok(())
-        }
-        Command::Install => {
-            let installed_path = install_autostart(&paths)?;
-            println!("Installed autostart entry: {}", installed_path.display());
-
-            let report = run_doctor(&paths, &config);
-            println!("{}", report.render_text());
-
-            Ok(())
-        }
-        Command::Status => {
-            let report = status_report(&config, &paths)?;
-            println!("{report}");
-            Ok(())
-        }
-    }
+    execute_command(cli.command, paths, config, &DefaultCommandExecutor)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{execute_command, CommandExecutor};
+    use crate::bootstrap::paths::AppPaths;
+    use crate::cli::Command;
+    use crate::config::schema::AppConfig;
+    use crate::error::AppResult;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct SpyExecutor {
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl CommandExecutor for SpyExecutor {
+        fn run(&self, _config: AppConfig, _paths: AppPaths) -> AppResult<()> {
+            self.calls
+                .lock()
+                .expect("lock calls")
+                .push("run".to_owned());
+            Ok(())
+        }
+
+        fn doctor(&self, _paths: &AppPaths, _config: &AppConfig, json: bool) -> AppResult<()> {
+            self.calls
+                .lock()
+                .expect("lock calls")
+                .push(format!("doctor:{json}"));
+            Ok(())
+        }
+
+        fn install(&self, _paths: &AppPaths, _config: &AppConfig) -> AppResult<()> {
+            self.calls
+                .lock()
+                .expect("lock calls")
+                .push("install".to_owned());
+            Ok(())
+        }
+
+        fn status(&self, _paths: &AppPaths, _config: &AppConfig) -> AppResult<()> {
+            self.calls
+                .lock()
+                .expect("lock calls")
+                .push("status".to_owned());
+            Ok(())
+        }
+    }
+
+    fn sample_paths(root: &std::path::Path) -> AppPaths {
+        AppPaths {
+            config_dir: root.join("config"),
+            data_dir: root.join("data"),
+            cache_dir: root.join("cache"),
+            logs_dir: root.join("cache/logs"),
+            state_dir: root.join("cache/fw-state"),
+            config_file: root.join("config/config.toml"),
+            history_db: root.join("data/history.sqlite3"),
+            autostart_file: root.join("autostart/quedo-daemon.desktop"),
+        }
+    }
+
+    #[test]
+    fn command_dispatch_routes_run_doctor_install_and_status() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let paths = sample_paths(temp.path());
+        let config = AppConfig::default();
+        let executor = SpyExecutor::default();
+
+        execute_command(Command::Run, paths.clone(), config.clone(), &executor).expect("run");
+        execute_command(
+            Command::Doctor { json: true },
+            paths.clone(),
+            config.clone(),
+            &executor,
+        )
+        .expect("doctor");
+        execute_command(Command::Install, paths.clone(), config.clone(), &executor)
+            .expect("install");
+        execute_command(Command::Status, paths, config, &executor).expect("status");
+
+        assert_eq!(
+            executor.calls.lock().expect("lock calls").as_slice(),
+            ["run", "doctor:true", "install", "status"]
+        );
+    }
+
     #[test]
     fn module_re_exports_are_reachable() {
         let _bootstrap: fn(

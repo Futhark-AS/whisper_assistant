@@ -249,11 +249,22 @@ mod tests {
         let installed = install_autostart(&paths).expect("install");
         assert_eq!(installed, paths.autostart_file);
         let text = std::fs::read_to_string(installed).expect("read");
-        assert!(text.contains("run"));
+        let executable = std::env::current_exe().expect("current exe");
         if cfg!(target_os = "macos") {
             assert!(text.contains("<plist"));
+            assert!(text.contains("<key>ProgramArguments</key>"));
+            assert!(text.contains(&format!("<string>{}</string>", executable.display())));
+            assert!(text.contains("<string>run</string>"));
         } else {
             assert!(text.contains("[Desktop Entry]"));
+            assert!(text.contains("Type=Application"));
+            assert!(text.contains("Name=Quedo Daemon"));
+            assert!(text.contains("X-GNOME-Autostart-enabled=true"));
+            let expected_exec = format!("Exec={} run", executable.display());
+            assert!(
+                text.lines().any(|line| line == expected_exec),
+                "autostart entry missing exact Exec line `{expected_exec}`:\n{text}"
+            );
         }
     }
 
