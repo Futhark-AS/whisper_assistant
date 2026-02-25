@@ -7,5 +7,7 @@ pub fn env_lock() -> &'static Mutex<()> {
 }
 
 pub fn lock_env() -> MutexGuard<'static, ()> {
-    env_lock().lock().unwrap_or_else(|poison| poison.into_inner())
+    env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
 }

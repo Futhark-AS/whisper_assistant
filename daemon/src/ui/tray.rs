@@ -132,8 +132,10 @@ mod tests {
         let tray = TrayController::new().expect("new");
         assert!(tray.drain_events().is_empty());
         tray.set_state(&ControllerState::Idle).expect("set idle");
-        tray.set_state(&ControllerState::Recording).expect("set recording");
-        tray.set_state(&ControllerState::Processing).expect("set processing");
+        tray.set_state(&ControllerState::Recording)
+            .expect("set recording");
+        tray.set_state(&ControllerState::Processing)
+            .expect("set processing");
         tray.set_state(&ControllerState::Degraded("err".to_owned()))
             .expect("set degraded");
     }

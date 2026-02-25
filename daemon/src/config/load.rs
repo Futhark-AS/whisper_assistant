@@ -332,7 +332,9 @@ mode = "disabled"
     fn validate_rejects_zero_timeout_and_max_recording() {
         let mut config = AppConfig::default();
         config.transcription.timeout_seconds = 0;
-        assert!(matches!(validate(&config), Err(AppError::Config(message)) if message.contains("timeout_seconds")));
+        assert!(
+            matches!(validate(&config), Err(AppError::Config(message)) if message.contains("timeout_seconds"))
+        );
 
         config.transcription.timeout_seconds = 1;
         config.audio.max_recording_seconds = 0;
@@ -426,8 +428,14 @@ timeout_seconds = "abc"
 
     #[test]
     fn output_mode_parser_supports_aliases() {
-        assert_eq!(parse_output_mode("clipboard_only"), Some(OutputMode::ClipboardOnly));
-        assert_eq!(parse_output_mode("clipboard-only"), Some(OutputMode::ClipboardOnly));
+        assert_eq!(
+            parse_output_mode("clipboard_only"),
+            Some(OutputMode::ClipboardOnly)
+        );
+        assert_eq!(
+            parse_output_mode("clipboard-only"),
+            Some(OutputMode::ClipboardOnly)
+        );
         assert_eq!(parse_output_mode("disabled"), Some(OutputMode::Disabled));
         assert_eq!(parse_output_mode("none"), Some(OutputMode::Disabled));
         assert_eq!(parse_output_mode("other"), None);

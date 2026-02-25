@@ -549,7 +549,8 @@ sleep 30
         write_script(&bin.join("arecord"), recorder_script);
         write_script(&bin.join("ffmpeg"), recorder_script);
 
-        let recording = start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
+        let recording =
+            start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
         std::thread::sleep(Duration::from_millis(80));
         let wav_path = recording.stop().expect("stop");
         assert!(wav_path.exists());
@@ -576,7 +577,8 @@ sleep 30
 "#;
         write_script(&bin.join("ffmpeg"), ffmpeg_script);
 
-        let recording = start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
+        let recording =
+            start_recording_linux(None, temp.path(), watchdog(500, 500)).expect("start");
         std::thread::sleep(Duration::from_millis(80));
         let wav_path = recording.stop().expect("stop");
         assert!(wav_path.exists());
@@ -613,8 +615,7 @@ sleep 30
 "#,
         );
 
-        let recording =
-            start_recording_linux(None, temp.path(), watchdog(40, 500)).expect("start");
+        let recording = start_recording_linux(None, temp.path(), watchdog(40, 500)).expect("start");
         std::thread::sleep(Duration::from_millis(80));
         let snapshot = recording.watchdog_snapshot();
         assert!(!snapshot.armed);
@@ -639,8 +640,7 @@ sleep 30
 "#,
         );
 
-        let recording =
-            start_recording_linux(None, temp.path(), watchdog(500, 50)).expect("start");
+        let recording = start_recording_linux(None, temp.path(), watchdog(500, 50)).expect("start");
         std::thread::sleep(Duration::from_millis(60));
         let first = recording.watchdog_snapshot();
         assert!(first.armed);

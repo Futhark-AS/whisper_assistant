@@ -627,7 +627,10 @@ mod tests {
         assert_eq!(parse_version_triplet("whisper-cli 1.7.2"), Some([1, 7, 2]));
         assert_eq!(parse_version_triplet("noise"), None);
         assert!(version_at_least(&[6, 1, 0], &parse_target_version("6.0")));
-        assert!(!version_at_least(&[1, 0, 0], &parse_target_version("1.7.2")));
+        assert!(!version_at_least(
+            &[1, 0, 0],
+            &parse_target_version("1.7.2")
+        ));
     }
 
     #[test]
@@ -786,10 +789,7 @@ echo "card 0: Device [Mock Device], device 0: Mock [Mock]"
         let warn = check_microphone_permission(true);
         assert_eq!(warn.status, CheckStatus::Warn);
 
-        write_script(
-            &bin.join("arecord"),
-            "#!/bin/sh\nexit 1\n",
-        );
+        write_script(&bin.join("arecord"), "#!/bin/sh\nexit 1\n");
         let warn_error = check_microphone_permission(true);
         assert_eq!(warn_error.status, CheckStatus::Warn);
     }
@@ -817,7 +817,10 @@ echo "card 0: Device [Mock Device], device 0: Mock [Mock]"
         assert_eq!(warn.status, CheckStatus::Warn);
 
         fs::remove_file(bin.join("arecord")).expect("remove");
-        write_script(&bin.join("ffmpeg"), "#!/bin/sh\necho \"ffmpeg version 8.0\"\n");
+        write_script(
+            &bin.join("ffmpeg"),
+            "#!/bin/sh\necho \"ffmpeg version 8.0\"\n",
+        );
         let pass_ffmpeg = check_recording_backend_capability();
         assert_eq!(pass_ffmpeg.status, CheckStatus::Pass);
 

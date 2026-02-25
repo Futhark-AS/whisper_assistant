@@ -23,6 +23,12 @@ impl RuntimeTopology {
     }
 }
 
+impl Default for RuntimeTopology {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RuntimeTopology;

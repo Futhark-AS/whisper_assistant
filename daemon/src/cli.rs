@@ -99,7 +99,10 @@ mod tests {
             parse_output_mode_override("disabled"),
             Some(OutputMode::Disabled)
         );
-        assert_eq!(parse_output_mode_override("none"), Some(OutputMode::Disabled));
+        assert_eq!(
+            parse_output_mode_override("none"),
+            Some(OutputMode::Disabled)
+        );
         assert_eq!(parse_output_mode_override("unknown"), None);
     }
 
@@ -119,14 +122,20 @@ mod tests {
         };
 
         let overrides = cli.to_overrides();
-        assert_eq!(overrides.config_path, Some(PathBuf::from("/tmp/config.toml")));
+        assert_eq!(
+            overrides.config_path,
+            Some(PathBuf::from("/tmp/config.toml"))
+        );
         assert_eq!(overrides.backend, Some(BackendKind::WhisperCpp));
         assert_eq!(overrides.model_id.as_deref(), Some("model-a"));
         assert_eq!(overrides.language.as_deref(), Some("en"));
         assert_eq!(overrides.timeout_seconds, Some(88));
         assert_eq!(overrides.diarize, Some(true));
         assert_eq!(overrides.translate, Some(true));
-        assert_eq!(overrides.hotkey_binding.as_deref(), Some("Ctrl+Shift+Space"));
+        assert_eq!(
+            overrides.hotkey_binding.as_deref(),
+            Some("Ctrl+Shift+Space")
+        );
         assert_eq!(overrides.output_mode, Some(OutputMode::ClipboardOnly));
     }
 

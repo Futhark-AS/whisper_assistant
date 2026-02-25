@@ -150,12 +150,10 @@ mod tests {
         assert!(paths.cache_dir.is_dir());
         assert!(paths.logs_dir.is_dir());
         assert!(paths.state_dir.is_dir());
-        assert!(
-            paths
-                .autostart_file
-                .parent()
-                .expect("autostart parent")
-                .is_dir()
-        );
+        assert!(paths
+            .autostart_file
+            .parent()
+            .expect("autostart parent")
+            .is_dir());
     }
 }
