@@ -59,7 +59,8 @@ final class TranscriptionPipelineTests: XCTestCase {
         )
 
         let counter = CallCounter()
-        let primary = CountingProvider(kind: .groq, counter: counter)
+        let extensions = RequestedFileExtensionCollector()
+        let primary = CountingProvider(kind: .groq, counter: counter, extensionCollector: extensions)
         let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("unused"))
         let pipeline = TranscriptionPipeline(providers: [primary, fallback], requestTimeoutSeconds: 2)
 
@@ -69,11 +70,37 @@ final class TranscriptionPipelineTests: XCTestCase {
 
         let result = try await pipeline.transcribe(audioFileURL: file, settings: settings)
         let calls = await counter.value()
+        let capturedExtensions = await extensions.values()
 
         XCTAssertEqual(calls, 2)
         XCTAssertEqual(result.text, "chunk-1 chunk-2")
         XCTAssertEqual(result.providerUsed, .groq)
         XCTAssertFalse(result.fallbackUsed)
+        XCTAssertEqual(capturedExtensions, ["flac", "flac"])
+    }
+
+    func testUploadsFlacWhenInputIsWAV() async throws {
+        let file = try makeTestWAV(
+            name: "pipeline-test-upload-flac-\(UUID().uuidString)",
+            durationSeconds: 1.0
+        )
+
+        let counter = CallCounter()
+        let extensions = RequestedFileExtensionCollector()
+        let primary = CountingProvider(kind: .groq, counter: counter, extensionCollector: extensions)
+        let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("unused"))
+        let pipeline = TranscriptionPipeline(providers: [primary, fallback], requestTimeoutSeconds: 2)
+
+        var settings = AppSettings.default
+        settings.provider.primary = .groq
+        settings.provider.fallback = .openAI
+
+        _ = try await pipeline.transcribe(audioFileURL: file, settings: settings)
+        let calls = await counter.value()
+        let capturedExtensions = await extensions.values()
+
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(capturedExtensions, ["flac"])
     }
 }
 
@@ -90,12 +117,25 @@ private actor CallCounter {
     }
 }
 
+private actor RequestedFileExtensionCollector {
+    private var valuesInternal: [String] = []
+
+    func append(_ pathExtension: String) {
+        valuesInternal.append(pathExtension)
+    }
+
+    func values() -> [String] {
+        valuesInternal
+    }
+}
+
 private struct CountingProvider: TranscriptionProvider {
     let kind: ProviderKind
     let counter: CallCounter
+    let extensionCollector: RequestedFileExtensionCollector
 
     func transcribe(request: TranscriptionRequest) async throws -> TranscriptionResponse {
-        _ = request
+        await extensionCollector.append(request.audioFileURL.pathExtension.lowercased())
         let callNumber = await counter.increment()
         return TranscriptionResponse(text: "chunk-\(callNumber)", provider: kind, isPartial: false)
     }

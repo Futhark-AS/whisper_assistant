@@ -33,6 +33,7 @@ public actor TranscriptionPipeline {
     private let providers: [ProviderKind: any TranscriptionProvider]
     private var fallbackStickyUntil: Date?
     private var primaryProbeTask: Task<Void, Never>?
+    private let fileManager = FileManager.default
 
     private let requestTimeoutSeconds: Int
     private let chunkDurationSeconds: Double = 5 * 60
@@ -59,7 +60,11 @@ public actor TranscriptionPipeline {
         let preferredPrimary = fallbackIsSticky ? settings.provider.fallback : settings.provider.primary
         let preferredFallback = fallbackIsSticky ? settings.provider.primary : settings.provider.fallback
 
-        let chunks = try chunkAudioIfNeeded(audioFileURL)
+        let preparedChunks = try prepareChunksForUpload(audioFileURL)
+        defer {
+            cleanupTemporaryFiles(preparedChunks.temporaryFiles)
+        }
+        let chunks = preparedChunks.uploadFiles
         let primary = try provider(for: preferredPrimary)
         let fallback = try provider(for: preferredFallback)
 
@@ -195,6 +200,66 @@ public actor TranscriptionPipeline {
         }
     }
 
+    private struct PreparedUploadChunks: Sendable {
+        let uploadFiles: [URL]
+        let temporaryFiles: [URL]
+    }
+
+    private func prepareChunksForUpload(_ audioFileURL: URL) throws -> PreparedUploadChunks {
+        let chunkFiles = try chunkAudioIfNeeded(audioFileURL)
+
+        var uploadFiles: [URL] = []
+        var temporaryFiles: [URL] = []
+
+        for chunk in chunkFiles {
+            let isTemporaryChunk = chunk != audioFileURL
+            if isTemporaryChunk {
+                temporaryFiles.append(chunk)
+            }
+
+            if chunk.pathExtension.lowercased() == "flac" {
+                uploadFiles.append(chunk)
+                continue
+            }
+
+            let converted = try transcodeToFLAC(chunk)
+            uploadFiles.append(converted)
+            temporaryFiles.append(converted)
+        }
+
+        return PreparedUploadChunks(uploadFiles: uploadFiles, temporaryFiles: temporaryFiles)
+    }
+
+    private func transcodeToFLAC(_ sourceURL: URL) throws -> URL {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("QuedoUploadAudio", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        } catch {
+            throw TranscriptionPipelineError.chunkingFailed
+        }
+
+        let destinationURL = tempRoot.appendingPathComponent("upload-\(UUID().uuidString)").appendingPathExtension("flac")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        process.arguments = [sourceURL.path, "-f", "flac", "-d", "flac", destinationURL.path]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            throw TranscriptionPipelineError.chunkingFailed
+        }
+
+        guard process.terminationStatus == 0, fileManager.fileExists(atPath: destinationURL.path) else {
+            try? fileManager.removeItem(at: destinationURL)
+            throw TranscriptionPipelineError.chunkingFailed
+        }
+
+        return destinationURL
+    }
+
     private func chunkAudioIfNeeded(_ fileURL: URL) throws -> [URL] {
         let sourceFile: AVAudioFile
         do {
@@ -271,6 +336,12 @@ public actor TranscriptionPipeline {
         }
 
         return files
+    }
+
+    private func cleanupTemporaryFiles(_ files: [URL]) {
+        for file in Set(files) {
+            try? fileManager.removeItem(at: file)
+        }
     }
 
     private func cleanup(text: String, replacements: [String: String]) -> String {
