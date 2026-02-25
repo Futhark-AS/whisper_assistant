@@ -46,6 +46,19 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(snapshot.phase, .processing)
     }
 
+    func testProcessingToRetryAvailableTransition() async throws {
+        let machine = LifecycleStateMachine()
+        try await machine.transition(to: .ready)
+        try await machine.beginSession(id: UUID())
+        try await machine.transition(to: .arming)
+        try await machine.transition(to: .recording)
+        try await machine.transition(to: .processing)
+        try await machine.transition(to: .retryAvailable)
+
+        let snapshot = await machine.snapshot()
+        XCTAssertEqual(snapshot.phase, .retryAvailable)
+    }
+
     func testActivePhasesCanTransitionBackToReady() async throws {
         let arming = LifecycleStateMachine()
         try await arming.transition(to: .ready)

@@ -44,4 +44,28 @@ final class HistoryStoreTests: XCTestCase {
         let missingTranscript = try await store.transcriptText(sessionID: UUID())
         XCTAssertNil(missingTranscript)
     }
+
+    func testSaveSessionRemovesTemporarySourceAudio() async throws {
+        let store = try HistoryStore()
+        let sessionID = UUID()
+        let tempAudio = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("history-test-cleanup-\(sessionID.uuidString).wav")
+        try Data("audio".utf8).write(to: tempAudio)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempAudio.path))
+
+        let record = SessionRecord(
+            sessionID: sessionID,
+            createdAt: Date(),
+            durationMS: 1000,
+            providerPrimary: .groq,
+            providerUsed: .groq,
+            language: "en",
+            outputMode: .clipboard,
+            status: .success,
+            transcript: "cleanup",
+            audioPath: tempAudio
+        )
+
+        try await store.saveSession(record)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tempAudio.path))
+    }
 }

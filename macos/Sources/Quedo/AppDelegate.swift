@@ -63,6 +63,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileLogger = RotatingFileLogger(directory: appSupport.appendingPathComponent("logs", isDirectory: true))
         let logger = AppLogger(subsystem: "com.futhark.quedo.app", category: "runtime", fileLogger: fileLogger)
         let diagnostics = DiagnosticsCenter(historyStore: historyStore, logger: logger)
+        if await historyStore.recoveredDatabaseOnStartup() {
+            await diagnostics.emit(
+                DiagnosticEvent(
+                    name: "history_store_recovered_database",
+                    sessionID: nil,
+                    attributes: [:]
+                )
+            )
+        }
 
         let bootSettings = (try? await configurationManager.loadSettings()) ?? .default
 

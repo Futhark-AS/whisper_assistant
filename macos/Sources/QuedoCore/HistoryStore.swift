@@ -67,6 +67,7 @@ public actor HistoryStore {
     private let fileManager: FileManager
     private let baseURL: URL
     private let dbURL: URL
+    private let recoveredDatabaseFromCorruption: Bool
     private var db: OpaquePointer?
 
     /// Creates history store and initializes schema.
@@ -80,9 +81,15 @@ public actor HistoryStore {
         self.dbURL = resolvedDBURL
 
         try Self.setupDirectories(fileManager: fileManager, baseURL: resolvedBaseURL)
-        let connection = try Self.openDatabase(at: resolvedDBURL)
+        let openResult = try Self.openOrRecoverDatabase(at: resolvedDBURL, fileManager: fileManager)
+        let connection = openResult.connection
+        self.recoveredDatabaseFromCorruption = openResult.recoveredFromCorruption
         self.db = connection
-        try Self.initializeSchema(on: connection)
+    }
+
+    /// Indicates startup recovered from a corrupted on-disk database.
+    public func recoveredDatabaseOnStartup() -> Bool {
+        recoveredDatabaseFromCorruption
     }
 
     /// Stores a completed session and related artifacts.
@@ -411,6 +418,31 @@ public actor HistoryStore {
         try fileManager.createDirectory(at: baseURL.appendingPathComponent("exports"), withIntermediateDirectories: true)
     }
 
+    private static func openOrRecoverDatabase(
+        at dbURL: URL,
+        fileManager: FileManager
+    ) throws -> (connection: OpaquePointer, recoveredFromCorruption: Bool) {
+        do {
+            let connection = try openInitializedDatabase(at: dbURL)
+            return (connection, false)
+        } catch {
+            try quarantineDatabaseFiles(at: dbURL, fileManager: fileManager)
+            let connection = try openInitializedDatabase(at: dbURL)
+            return (connection, true)
+        }
+    }
+
+    private static func openInitializedDatabase(at dbURL: URL) throws -> OpaquePointer {
+        let connection = try openDatabase(at: dbURL)
+        do {
+            try initializeSchema(on: connection)
+            return connection
+        } catch {
+            sqlite3_close(connection)
+            throw error
+        }
+    }
+
     private static func openDatabase(at dbURL: URL) throws -> OpaquePointer {
         var connection: OpaquePointer?
         let status = sqlite3_open_v2(
@@ -432,6 +464,31 @@ public actor HistoryStore {
         } catch {
             sqlite3_close(connection)
             throw error
+        }
+    }
+
+    private static func quarantineDatabaseFiles(at dbURL: URL, fileManager: FileManager) throws {
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let suffixes = ["", "-wal", "-shm"]
+
+        for suffix in suffixes {
+            let sourcePath = dbURL.path + suffix
+            guard fileManager.fileExists(atPath: sourcePath) else {
+                continue
+            }
+
+            let sourceURL = URL(fileURLWithPath: sourcePath)
+            var destinationURL = dbURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(dbURL.lastPathComponent).corrupt-\(timestamp)\(suffix)")
+
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                destinationURL = dbURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("\(dbURL.lastPathComponent).corrupt-\(timestamp)-\(UUID().uuidString)\(suffix)")
+            }
+
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
         }
     }
 
@@ -669,8 +726,22 @@ public actor HistoryStore {
             try fileManager.removeItem(at: destination)
         }
         try fileManager.copyItem(at: sourcePath, to: destination)
+        if shouldDeleteTemporarySourceAfterCopy(sourcePath: sourcePath, destinationPath: destination) {
+            try? fileManager.removeItem(at: sourcePath)
+        }
 
         return destination
+    }
+
+    private func shouldDeleteTemporarySourceAfterCopy(sourcePath: URL, destinationPath: URL) -> Bool {
+        let source = sourcePath.standardizedFileURL.path
+        let destination = destinationPath.standardizedFileURL.path
+        guard source != destination else {
+            return false
+        }
+
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
+        return source.hasPrefix(tempRoot)
     }
 }
 

@@ -283,56 +283,63 @@ public actor TranscriptionPipeline {
         }
 
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("QuedoChunks", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
 
         let readBlockFrames: AVAudioFrameCount = 8_192
         var remainingFrames = sourceFile.length
         var files: [URL] = []
+        var createdPaths: [URL] = []
         var index = 0
 
-        while remainingFrames > 0 {
-            let chunkFrames = min(framesPerChunk, remainingFrames)
-            let path = tempRoot.appendingPathComponent("chunk-\(UUID().uuidString)-\(index).wav")
+        do {
+            while remainingFrames > 0 {
+                let chunkFrames = min(framesPerChunk, remainingFrames)
+                let path = tempRoot.appendingPathComponent("chunk-\(UUID().uuidString)-\(index).wav")
+                createdPaths.append(path)
 
-            let chunkFile: AVAudioFile
-            do {
-                chunkFile = try AVAudioFile(forWriting: path, settings: outputFormat.settings)
-            } catch {
-                throw TranscriptionPipelineError.chunkingFailed
-            }
-
-            var chunkFramesRemaining = chunkFrames
-            while chunkFramesRemaining > 0 {
-                let framesToRead = AVAudioFrameCount(min(AVAudioFramePosition(readBlockFrames), chunkFramesRemaining))
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: framesToRead) else {
-                    throw TranscriptionPipelineError.chunkingFailed
-                }
-
+                let chunkFile: AVAudioFile
                 do {
-                    try sourceFile.read(into: buffer, frameCount: framesToRead)
+                    chunkFile = try AVAudioFile(forWriting: path, settings: outputFormat.settings)
                 } catch {
                     throw TranscriptionPipelineError.chunkingFailed
                 }
 
-                let readFrames = AVAudioFramePosition(buffer.frameLength)
-                if readFrames == 0 {
-                    chunkFramesRemaining = 0
-                    remainingFrames = 0
-                    break
+                var chunkFramesRemaining = chunkFrames
+                while chunkFramesRemaining > 0 {
+                    let framesToRead = AVAudioFrameCount(min(AVAudioFramePosition(readBlockFrames), chunkFramesRemaining))
+                    guard let buffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: framesToRead) else {
+                        throw TranscriptionPipelineError.chunkingFailed
+                    }
+
+                    do {
+                        try sourceFile.read(into: buffer, frameCount: framesToRead)
+                    } catch {
+                        throw TranscriptionPipelineError.chunkingFailed
+                    }
+
+                    let readFrames = AVAudioFramePosition(buffer.frameLength)
+                    if readFrames == 0 {
+                        chunkFramesRemaining = 0
+                        remainingFrames = 0
+                        break
+                    }
+
+                    do {
+                        try chunkFile.write(from: buffer)
+                    } catch {
+                        throw TranscriptionPipelineError.chunkingFailed
+                    }
+
+                    chunkFramesRemaining -= readFrames
+                    remainingFrames -= readFrames
                 }
 
-                do {
-                    try chunkFile.write(from: buffer)
-                } catch {
-                    throw TranscriptionPipelineError.chunkingFailed
-                }
-
-                chunkFramesRemaining -= readFrames
-                remainingFrames -= readFrames
+                files.append(path)
+                index += 1
             }
-
-            files.append(path)
-            index += 1
+        } catch {
+            cleanupTemporaryFiles(createdPaths)
+            throw error
         }
 
         return files

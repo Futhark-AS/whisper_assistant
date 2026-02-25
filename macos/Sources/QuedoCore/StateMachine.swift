@@ -353,6 +353,8 @@ public actor LifecycleStateMachine {
             return true
         case (.processing, .streamingPartial), (.processing, .outputting), (.processing, .providerFallback):
             return true
+        case (.processing, .retryAvailable):
+            return true
         case (.processing, .ready):
             return true
         case (.streamingPartial, .outputting), (.streamingPartial, .providerFallback):
