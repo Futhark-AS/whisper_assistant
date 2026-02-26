@@ -173,4 +173,3 @@ cython_debug/
 
 quedo.pid
 macos/.build/
-third_party/franken-stack/

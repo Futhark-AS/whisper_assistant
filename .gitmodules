@@ -1,0 +1,18 @@
+[submodule "third_party/franken-stack/franken_whisper"]
+	path = third_party/franken-stack/franken_whisper
+	url = https://github.com/Dicklesworthstone/franken_whisper.git
+[submodule "third_party/franken-stack/frankensqlite"]
+	path = third_party/franken-stack/frankensqlite
+	url = https://github.com/Dicklesworthstone/frankensqlite.git
+[submodule "third_party/franken-stack/asupersync"]
+	path = third_party/franken-stack/asupersync
+	url = https://github.com/Dicklesworthstone/asupersync.git
+[submodule "third_party/franken-stack/frankenjax"]
+	path = third_party/franken-stack/frankenjax
+	url = https://github.com/Dicklesworthstone/frankenjax.git
+[submodule "third_party/franken-stack/frankentorch"]
+	path = third_party/franken-stack/frankentorch
+	url = https://github.com/Dicklesworthstone/frankentorch.git
+[submodule "third_party/franken-stack/frankentui"]
+	path = third_party/franken-stack/frankentui
+	url = https://github.com/Dicklesworthstone/frankentui.git
