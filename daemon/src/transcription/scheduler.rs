@@ -43,6 +43,7 @@ mod tests {
     use crate::config::schema::TranscriptionConfig;
     use crate::error::{AppError, AppResult};
     use crate::transcription::engine::EngineAdapter;
+    use crate::transcription::request_builder::build_request;
     use franken_whisper::model::{
         BackendKind, InputSource, ReplayEnvelope, RunEvent, RunReport, TranscribeRequest,
         TranscriptionResult,
@@ -140,6 +141,58 @@ mod tests {
         assert_eq!(output.language.as_deref(), Some("en"));
         assert_eq!(output.warnings, vec!["minor".to_owned()]);
         assert_eq!(output.finished_at_rfc3339, "2026-02-25T00:00:02Z");
+    }
+
+    #[test]
+    fn transcribe_job_sends_exact_request_to_engine() {
+        let engine = FakeEngine::with_result(Ok(sample_report()));
+        let config = TranscriptionConfig {
+            backend: BackendKind::InsanelyFast,
+            model_id: Some("base.en".to_owned()),
+            language: Some("en".to_owned()),
+            translate: true,
+            diarize: true,
+            timeout_seconds: 12,
+            threads: Some(7),
+            processors: Some(2),
+        };
+        let wav_path = PathBuf::from("/tmp/input.wav");
+        let db_path = PathBuf::from("/tmp/history.sqlite3");
+
+        run_transcription_job(&engine, wav_path.clone(), db_path.clone(), &config)
+            .expect("transcription should succeed");
+
+        let captured = engine.requests.lock().expect("lock captured requests");
+        assert_eq!(captured.len(), 1, "exactly one request should be sent");
+
+        let expected = build_request(wav_path, db_path, &config);
+        let sent = captured.first().expect("request present");
+        match (&sent.input, &expected.input) {
+            (
+                InputSource::File { path: sent_path },
+                InputSource::File {
+                    path: expected_path,
+                },
+            ) => {
+                assert_eq!(sent_path, expected_path)
+            }
+            (sent_input, expected_input) => {
+                panic!("unexpected input mapping: sent={sent_input:?} expected={expected_input:?}")
+            }
+        }
+        assert_eq!(sent.backend, expected.backend);
+        assert_eq!(sent.model, expected.model);
+        assert_eq!(sent.language, expected.language);
+        assert_eq!(sent.translate, expected.translate);
+        assert_eq!(sent.diarize, expected.diarize);
+        assert_eq!(sent.persist, expected.persist);
+        assert_eq!(sent.db_path, expected.db_path);
+        assert_eq!(sent.timeout_ms, expected.timeout_ms);
+        assert_eq!(sent.backend_params.threads, expected.backend_params.threads);
+        assert_eq!(
+            sent.backend_params.processors,
+            expected.backend_params.processors
+        );
     }
 
     #[test]

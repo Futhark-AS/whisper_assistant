@@ -35,3 +35,4 @@ tray-icon = "0.21"
 
 [dev-dependencies]
 roxmltree = "0.20"
+fsqlite-types = { path = "../third_party/franken-stack/frankensqlite/crates/fsqlite-types" }

@@ -2771,6 +2771,7 @@ dependencies = [
  "ctrlc",
  "directories",
  "franken_whisper",
+ "fsqlite-types",
  "global-hotkey",
  "hound",
  "notify-rust",
