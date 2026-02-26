@@ -3,7 +3,7 @@
 	url = https://github.com/Dicklesworthstone/franken_whisper.git
 [submodule "third_party/franken-stack/frankensqlite"]
 	path = third_party/franken-stack/frankensqlite
-	url = https://github.com/Dicklesworthstone/frankensqlite.git
+	url = https://github.com/Futhark-AS/frankensqlite.git
 [submodule "third_party/franken-stack/asupersync"]
 	path = third_party/franken-stack/asupersync
 	url = https://github.com/Dicklesworthstone/asupersync.git
