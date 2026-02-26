@@ -48,7 +48,7 @@ pub fn run_doctor(paths: &AppPaths, config: &AppConfig) -> DoctorReport {
         config.permissions.microphone_required,
     ));
     checks.push(check_recording_backend_capability());
-    checks.extend(check_macos_metal(paths));
+    checks.extend(check_macos_metal(paths, config));
 
     let state = derive_state(&checks);
 
@@ -63,13 +63,13 @@ fn derive_state(checks: &[CheckResult]) -> DoctorState {
     let required_failed = checks
         .iter()
         .any(|check| check.required && check.status == CheckStatus::Fail);
-    let any_degraded = checks
+    let required_warned = checks
         .iter()
-        .any(|check| matches!(check.status, CheckStatus::Warn | CheckStatus::Fail));
+        .any(|check| check.required && check.status == CheckStatus::Warn);
 
     if required_failed {
         DoctorState::Unavailable
-    } else if any_degraded {
+    } else if required_warned {
         DoctorState::Degraded
     } else {
         DoctorState::Ready
@@ -115,7 +115,11 @@ fn check_binary_version(
 ) -> CheckResult {
     let missing = || CheckResult {
         name: binary.to_owned(),
-        status: CheckStatus::Fail,
+        status: if required {
+            CheckStatus::Fail
+        } else {
+            CheckStatus::Skip
+        },
         detail: "binary not found in PATH".to_owned(),
         required,
         remediation: remediation.map(ToOwned::to_owned),
@@ -147,7 +151,11 @@ fn check_binary_version(
             } else {
                 CheckResult {
                     name: binary.to_owned(),
-                    status: CheckStatus::Fail,
+                    status: if required {
+                        CheckStatus::Fail
+                    } else {
+                        CheckStatus::Warn
+                    },
                     detail: format!("{} (< {})", version_triplet_string(&found), min_version),
                     required,
                     remediation: remediation.map(ToOwned::to_owned),
@@ -357,7 +365,7 @@ print(status.rawValue)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn check_macos_metal(_paths: &AppPaths) -> Vec<CheckResult> {
+fn check_macos_metal(_paths: &AppPaths, _config: &AppConfig) -> Vec<CheckResult> {
     vec![CheckResult {
         name: "metal_backend".to_owned(),
         status: CheckStatus::Skip,
@@ -368,7 +376,7 @@ fn check_macos_metal(_paths: &AppPaths) -> Vec<CheckResult> {
 }
 
 #[cfg(target_os = "macos")]
-fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
+fn check_macos_metal(paths: &AppPaths, config: &AppConfig) -> Vec<CheckResult> {
     let mut results = Vec::new();
 
     let whisper_path = match which::which("whisper-cli") {
@@ -416,9 +424,17 @@ fn check_macos_metal(paths: &AppPaths) -> Vec<CheckResult> {
         }),
     }
 
-    let model_path = std::env::var("WHISPER_MODEL_PATH")
+    let model_path = config
+        .transcription
+        .model_id
+        .as_ref()
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
+        .or_else(|| {
+            std::env::var("WHISPER_MODEL_PATH")
+                .ok()
+                .map(std::path::PathBuf::from)
+        })
+        .unwrap_or_else(|| {
             directories::BaseDirs::new()
                 .map(|dirs| {
                     dirs.home_dir()
@@ -651,6 +667,15 @@ mod tests {
             required: false,
             remediation: None,
         }];
+        assert_eq!(derive_state(&checks), DoctorState::Ready);
+
+        let checks = vec![CheckResult {
+            name: "a".to_owned(),
+            status: CheckStatus::Warn,
+            detail: "warn".to_owned(),
+            required: true,
+            remediation: None,
+        }];
         assert_eq!(derive_state(&checks), DoctorState::Degraded);
 
         let checks = vec![CheckResult {
@@ -667,6 +692,13 @@ mod tests {
     fn binary_check_missing_binary_fails() {
         let result = check_binary_version("definitely-not-a-binary", "1.0", true, Some("install"));
         assert_eq!(result.status, CheckStatus::Fail);
+        assert!(result.detail.contains("binary not found"));
+    }
+
+    #[test]
+    fn binary_check_missing_optional_binary_skips() {
+        let result = check_binary_version("definitely-not-a-binary", "1.0", false, Some("install"));
+        assert_eq!(result.status, CheckStatus::Skip);
         assert!(result.detail.contains("binary not found"));
     }
 

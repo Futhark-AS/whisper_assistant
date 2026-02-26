@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "mode", content = "reason", rename_all = "snake_case")]
 pub enum ControllerState {
     Idle,
     Recording,
     Processing,
     Degraded(String),
+    Unavailable(String),
 }
 
 #[cfg(test)]
@@ -20,6 +21,7 @@ mod tests {
             ControllerState::Recording,
             ControllerState::Processing,
             ControllerState::Degraded("oops".to_owned()),
+            ControllerState::Unavailable("missing required dependency".to_owned()),
         ];
 
         for state in cases {
@@ -27,10 +29,7 @@ mod tests {
             let value: serde_json::Value = serde_json::from_str(&json).expect("json");
             assert!(value.get("mode").is_some());
             let parsed: ControllerState = serde_json::from_str(&json).expect("deserialize");
-            match (state, parsed) {
-                (ControllerState::Degraded(a), ControllerState::Degraded(b)) => assert_eq!(a, b),
-                (lhs, rhs) => assert_eq!(format!("{lhs:?}"), format!("{rhs:?}")),
-            }
+            assert_eq!(state, parsed);
         }
     }
 }

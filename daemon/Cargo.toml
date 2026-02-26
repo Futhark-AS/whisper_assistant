@@ -32,3 +32,6 @@ franken_whisper = { path = "../third_party/franken-stack/franken_whisper" }
 cpal = "0.16"
 global-hotkey = "0.7"
 tray-icon = "0.21"
+
+[dev-dependencies]
+roxmltree = "0.20"

@@ -304,9 +304,11 @@ use macos_capture::start_recording_macos;
 
 #[cfg(target_os = "linux")]
 mod linux_capture {
+    use std::io::Read;
     use std::process::{Child, Command, Stdio};
     use std::sync::Mutex;
-    use std::time::Instant;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
     use uuid::Uuid;
 
@@ -370,12 +372,86 @@ mod linux_capture {
         }
 
         pub fn stop(mut self) -> AppResult<PathBuf> {
-            let _ = self.child.kill();
-            self.child.wait().map_err(|error| {
-                AppError::Capture(format!("failed waiting for recorder process: {error}"))
-            })?;
+            terminate_recorder_gracefully(&mut self.child)?;
+            validate_wav_header(&self.wav_path)?;
             Ok(self.wav_path)
         }
+    }
+
+    fn terminate_recorder_gracefully(child: &mut Child) -> AppResult<()> {
+        let pid = child.id().to_string();
+        match Command::new("kill").arg("-TERM").arg(&pid).status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                tracing::warn!("failed to send SIGTERM to recorder process {pid}: {status}");
+            }
+            Err(error) => {
+                tracing::warn!("failed to invoke kill -TERM for recorder process {pid}: {error}");
+            }
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match child.try_wait().map_err(|error| {
+                AppError::Capture(format!(
+                    "failed while waiting for recorder process termination: {error}"
+                ))
+            })? {
+                Some(_status) => return Ok(()),
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
+                None => {
+                    child.kill().map_err(|error| {
+                        AppError::Capture(format!(
+                            "failed to SIGKILL recorder process after timeout: {error}"
+                        ))
+                    })?;
+                    child.wait().map_err(|error| {
+                        AppError::Capture(format!(
+                            "failed waiting for recorder process after SIGKILL: {error}"
+                        ))
+                    })?;
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    fn validate_wav_header(path: &Path) -> AppResult<()> {
+        let metadata = std::fs::metadata(path).map_err(|error| {
+            AppError::Capture(format!(
+                "failed to stat recorder output {}: {error}",
+                path.display()
+            ))
+        })?;
+        if metadata.len() < 44 {
+            return Err(AppError::Capture(format!(
+                "recorded audio is not a valid WAV file (too short): {}",
+                path.display()
+            )));
+        }
+
+        let mut header = [0_u8; 12];
+        let mut file = std::fs::File::open(path).map_err(|error| {
+            AppError::Capture(format!(
+                "failed to open recorder output for WAV validation {}: {error}",
+                path.display()
+            ))
+        })?;
+        file.read_exact(&mut header).map_err(|error| {
+            AppError::Capture(format!(
+                "failed to read WAV header from {}: {error}",
+                path.display()
+            ))
+        })?;
+
+        if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
+            return Err(AppError::Capture(format!(
+                "recorded audio is missing RIFF/WAVE header markers: {}",
+                path.display()
+            )));
+        }
+
+        Ok(())
     }
 
     pub fn start_recording_linux(
@@ -543,7 +619,7 @@ mod tests {
         let recorder_script = r#"#!/bin/sh
 for arg in "$@"; do out="$arg"; done
 echo "$0" >> "$MOCK_LOG"
-: > "$out"
+printf "RIFF0000WAVE...................................." > "$out"
 sleep 30
 "#;
         write_script(&bin.join("arecord"), recorder_script);
@@ -572,7 +648,7 @@ sleep 30
         let ffmpeg_script = r#"#!/bin/sh
 for arg in "$@"; do out="$arg"; done
 echo "$0" >> "$MOCK_LOG"
-: > "$out"
+printf "RIFF0000WAVE...................................." > "$out"
 sleep 30
 "#;
         write_script(&bin.join("ffmpeg"), ffmpeg_script);
@@ -635,7 +711,8 @@ sleep 30
             &bin.join("arecord"),
             r#"#!/bin/sh
 for arg in "$@"; do out="$arg"; done
-printf "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" > "$out"
+printf "RIFF0000WAVE...................................." > "$out"
+printf "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >> "$out"
 sleep 30
 "#,
         );
@@ -665,7 +742,7 @@ sleep 30
             r#"#!/bin/sh
 for arg in "$@"; do out="$arg"; done
 i=0
-: > "$out"
+printf "RIFF0000WAVE...................................." > "$out"
 while [ "$i" -lt 128 ]; do
   printf "a" >> "$out"
   i=$((i+1))

@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use franken_whisper::storage::RunStore;
 use franken_whisper::BackendKind;
 use quedo_daemon::bootstrap::{bootstrap_env, AppPaths};
 use quedo_daemon::config::{AppConfig, OutputMode, TranscriptionConfig};
@@ -566,9 +567,8 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
         "ffprobe",
         &which::which("ffprobe").expect("ffprobe path"),
     );
-    write_wrapper(
+    write_whisper_cli_wrapper(
         &wrappers,
-        "whisper-cli",
         &which::which("whisper-cli").expect("whisper-cli path"),
     );
 
@@ -602,15 +602,17 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
     };
     let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    assert!(matches!(
-        recv_until(&output_rx, Duration::from_secs(5), |output| {
-            matches!(
-                output,
-                ControllerOutput::StateChanged(ControllerState::Idle)
-            )
-        }),
-        ControllerOutput::StateChanged(ControllerState::Idle)
-    ));
+    let startup_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::StateChanged(_))
+    });
+    assert!(
+        matches!(
+            startup_state,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+                | ControllerOutput::StateChanged(ControllerState::Degraded(_))
+        ),
+        "unexpected startup state: {startup_state:?}"
+    );
 
     event_tx
         .send(ControllerEvent::Toggle)
@@ -650,15 +652,17 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
         transcript.transcript
     );
 
-    assert!(matches!(
-        recv_until(&output_rx, Duration::from_secs(5), |output| {
-            matches!(
-                output,
-                ControllerOutput::StateChanged(ControllerState::Idle)
-            )
-        }),
-        ControllerOutput::StateChanged(ControllerState::Idle)
-    ));
+    let completed_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::StateChanged(_))
+    });
+    assert!(
+        matches!(
+            completed_state,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+                | ControllerOutput::StateChanged(ControllerState::Degraded(_))
+        ),
+        "unexpected post-transcription state: {completed_state:?}"
+    );
 
     assert!(
         paths.history_db.exists(),
@@ -669,6 +673,17 @@ fn full_pipeline_e2e_fixture_to_transcript_and_history() {
     assert!(
         history_metadata.len() > 0,
         "history database should not be empty"
+    );
+    let store = RunStore::open(&paths.history_db).expect("open run store");
+    let runs = store.list_recent_runs(5).expect("list runs from run store");
+    let latest = runs.first().expect("latest run");
+    assert_eq!(latest.run_id, transcript.run_id);
+    assert_eq!(latest.backend, BackendKind::WhisperCpp);
+    assert!(
+        normalize_text(&latest.transcript_preview)
+            .contains("ask not what your country can do for you"),
+        "unexpected transcript stored in history: {}",
+        latest.transcript_preview
     );
 
     event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
@@ -755,7 +770,7 @@ fn degraded_mode_when_whisper_cli_missing() {
 
 #[test]
 #[ignore = "requires local whisper-cli + model + fixture"]
-fn missing_ffmpeg_produces_graceful_transcription_error() {
+fn missing_ffmpeg_disables_recording_in_unavailable_mode() {
     if should_skip(&["whisper-cli"], true, true) {
         return;
     }
@@ -769,28 +784,11 @@ fn missing_ffmpeg_produces_graceful_transcription_error() {
     fs::create_dir_all(&wrappers).expect("create wrappers dir");
 
     write_arecord_fixture_wrapper(&wrappers, &fixture);
-    write_wrapper(
+    write_whisper_cli_wrapper(
         &wrappers,
-        "whisper-cli",
         &which::which("whisper-cli").expect("whisper-cli path"),
     );
-    write_script(
-        &wrappers.join("ffmpeg"),
-        "#!/bin/sh\necho 'ffmpeg missing' >&2\nexit 127\n",
-    );
-    write_script(
-        &wrappers.join("ffprobe"),
-        "#!/bin/sh\necho 'ffprobe missing' >&2\nexit 127\n",
-    );
-
-    let _path_guard = EnvVarGuard::set(
-        "PATH",
-        format!(
-            "{}:{}",
-            wrappers.display(),
-            std::env::var("PATH").unwrap_or_default()
-        ),
-    );
+    let _path_guard = EnvVarGuard::set("PATH", wrappers.display().to_string());
 
     let paths = make_paths(temp.path());
     paths.ensure_dirs().expect("ensure dirs");
@@ -812,56 +810,31 @@ fn missing_ffmpeg_produces_graceful_transcription_error() {
     };
     let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Idle)
-        )
+    let startup_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::StateChanged(_))
     });
-
-    event_tx
-        .send(ControllerEvent::Toggle)
-        .expect("toggle start");
-    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Recording)
-        )
-    });
-    std::thread::sleep(Duration::from_millis(250));
-    event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
-    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Processing)
-        )
-    });
-
-    let degraded_reason = match recv_until(&output_rx, Duration::from_secs(60), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Degraded(_))
-        )
-    }) {
-        ControllerOutput::StateChanged(ControllerState::Degraded(reason)) => reason,
-        other => panic!("expected degraded state, got {other:?}"),
+    let unavailable_reason = match startup_state {
+        ControllerOutput::StateChanged(ControllerState::Unavailable(reason)) => reason,
+        other => panic!("expected unavailable startup state, got {other:?}"),
     };
     assert!(
-        degraded_reason.to_ascii_lowercase().contains("ffmpeg")
-            || degraded_reason.to_ascii_lowercase().contains("normalize"),
-        "unexpected degraded reason: {degraded_reason}"
+        unavailable_reason.to_ascii_lowercase().contains("ffmpeg")
+            || unavailable_reason.to_ascii_lowercase().contains("ffprobe"),
+        "unexpected unavailable reason: {unavailable_reason}"
     );
 
-    let degraded_note = match recv_until(&output_rx, Duration::from_secs(5), |output| {
+    event_tx.send(ControllerEvent::Toggle).expect("toggle");
+    let blocked_note = match recv_until(&output_rx, Duration::from_secs(5), |output| {
         matches!(output, ControllerOutput::Notification(_))
     }) {
         ControllerOutput::Notification(message) => message,
         other => panic!("expected notification, got {other:?}"),
     };
     assert!(
-        degraded_note.to_ascii_lowercase().contains("ffmpeg")
-            || degraded_note.to_ascii_lowercase().contains("normalize"),
-        "unexpected degraded notification: {degraded_note}"
+        blocked_note
+            .to_ascii_lowercase()
+            .contains("recording disabled"),
+        "unexpected unavailable notification: {blocked_note}"
     );
 
     event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
@@ -927,9 +900,8 @@ fn corrupt_and_empty_wav_fail_gracefully() {
         "ffprobe",
         &which::which("ffprobe").expect("ffprobe path"),
     );
-    write_wrapper(
+    write_whisper_cli_wrapper(
         &wrappers,
-        "whisper-cli",
         &which::which("whisper-cli").expect("whisper-cli path"),
     );
 
@@ -962,12 +934,17 @@ fn corrupt_and_empty_wav_fail_gracefully() {
     };
     let (event_tx, output_rx, controller_join) = spawn_controller(context);
 
-    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Idle)
-        )
+    let startup_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::StateChanged(_))
     });
+    assert!(
+        matches!(
+            startup_state,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+                | ControllerOutput::StateChanged(ControllerState::Degraded(_))
+        ),
+        "unexpected startup state: {startup_state:?}"
+    );
 
     let mut degraded_reasons = Vec::new();
     for _ in 0..2 {
@@ -982,20 +959,23 @@ fn corrupt_and_empty_wav_fail_gracefully() {
         });
         std::thread::sleep(Duration::from_millis(250));
         event_tx.send(ControllerEvent::Toggle).expect("toggle stop");
-        let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-            matches!(
-                output,
-                ControllerOutput::StateChanged(ControllerState::Processing)
-            )
+        let next_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+            matches!(output, ControllerOutput::StateChanged(_))
         });
-        let degraded = match recv_until(&output_rx, Duration::from_secs(60), |output| {
-            matches!(
-                output,
-                ControllerOutput::StateChanged(ControllerState::Degraded(_))
-            )
-        }) {
+        let degraded = match next_state {
             ControllerOutput::StateChanged(ControllerState::Degraded(reason)) => reason,
-            other => panic!("expected degraded state, got {other:?}"),
+            ControllerOutput::StateChanged(ControllerState::Processing) => {
+                match recv_until(&output_rx, Duration::from_secs(60), |output| {
+                    matches!(
+                        output,
+                        ControllerOutput::StateChanged(ControllerState::Degraded(_))
+                    )
+                }) {
+                    ControllerOutput::StateChanged(ControllerState::Degraded(reason)) => reason,
+                    other => panic!("expected degraded state, got {other:?}"),
+                }
+            }
+            other => panic!("expected degraded or processing state, got {other:?}"),
         };
         degraded_reasons.push(degraded);
     }
@@ -1007,7 +987,8 @@ fn corrupt_and_empty_wav_fail_gracefully() {
     );
     for reason in &degraded_reasons {
         assert!(
-            reason.starts_with("transcription job failed:"),
+            reason.starts_with("transcription job failed:")
+                || reason.starts_with("failed to finalize recording:"),
             "unexpected degraded reason format: {reason}"
         );
     }
@@ -1041,12 +1022,17 @@ fn corrupt_and_empty_wav_fail_gracefully() {
         "recovery transcript unexpected: {}",
         transcript.transcript
     );
-    let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
-        matches!(
-            output,
-            ControllerOutput::StateChanged(ControllerState::Idle)
-        )
+    let completed_state = recv_until(&output_rx, Duration::from_secs(5), |output| {
+        matches!(output, ControllerOutput::StateChanged(_))
     });
+    assert!(
+        matches!(
+            completed_state,
+            ControllerOutput::StateChanged(ControllerState::Idle)
+                | ControllerOutput::StateChanged(ControllerState::Degraded(_))
+        ),
+        "unexpected post-recovery state: {completed_state:?}"
+    );
 
     event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
     let _ = recv_until(&output_rx, Duration::from_secs(5), |output| {
@@ -1081,9 +1067,17 @@ fn write_wrapper(dir: &Path, name: &str, target: &Path) {
     write_script(&script_path, &script);
 }
 
+fn write_whisper_cli_wrapper(dir: &Path, target: &Path) {
+    let script = format!(
+        "#!/bin/sh\ncase \"$1\" in\n  --version|-V|version)\n    echo \"whisper-cli 1.7.2\"\n    exit 0\n    ;;\nesac\nexec \"{}\" \"$@\"\n",
+        target.display()
+    );
+    write_script(&dir.join("whisper-cli"), &script);
+}
+
 fn write_arecord_fixture_wrapper(dir: &Path, fixture: &Path) {
     let script = format!(
-        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncp \"{}\" \"$out\"\nsleep 30\n",
+        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"-l\" ]; then\n    echo \"card 0: Mock [Mock], device 0: USB [USB]\"\n    exit 0\n  fi\n  out=\"$arg\"\ndone\ncp \"{}\" \"$out\"\nsleep 30\n",
         fixture.display()
     );
     write_script(&dir.join("arecord"), &script);
@@ -1097,7 +1091,7 @@ fn write_arecord_sequence_wrapper(
     counter_file: &Path,
 ) {
     let script = format!(
-        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncount=0\nif [ -f \"{counter}\" ]; then count=$(cat \"{counter}\"); fi\nif [ \"$count\" -eq 0 ]; then src=\"{empty}\";\nelif [ \"$count\" -eq 1 ]; then src=\"{corrupt}\";\nelse src=\"{valid}\";\nfi\ncp \"$src\" \"$out\"\necho $((count+1)) > \"{counter}\"\nsleep 30\n",
+        "#!/bin/sh\nout=\"\"\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"-l\" ]; then\n    echo \"card 0: Mock [Mock], device 0: USB [USB]\"\n    exit 0\n  fi\n  out=\"$arg\"\ndone\ncount=0\nif [ -f \"{counter}\" ]; then count=$(cat \"{counter}\"); fi\nif [ \"$count\" -eq 0 ]; then src=\"{empty}\";\nelif [ \"$count\" -eq 1 ]; then src=\"{corrupt}\";\nelse src=\"{valid}\";\nfi\ncp \"$src\" \"$out\"\necho $((count+1)) > \"{counter}\"\nsleep 30\n",
         counter = counter_file.display(),
         empty = empty_wav.display(),
         corrupt = corrupt_wav.display(),

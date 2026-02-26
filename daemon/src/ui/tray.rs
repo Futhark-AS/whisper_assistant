@@ -88,6 +88,7 @@ mod macos_tray {
                 ControllerState::Recording => "Quedo: recording",
                 ControllerState::Processing => "Quedo: processing",
                 ControllerState::Degraded(_) => "Quedo: degraded",
+                ControllerState::Unavailable(_) => "Quedo: unavailable",
             };
             self.tray.set_tooltip(Some(label)).map_err(|error| {
                 crate::error::AppError::Controller(format!(
@@ -138,5 +139,7 @@ mod tests {
             .expect("set processing");
         tray.set_state(&ControllerState::Degraded("err".to_owned()))
             .expect("set degraded");
+        tray.set_state(&ControllerState::Unavailable("err".to_owned()))
+            .expect("set unavailable");
     }
 }

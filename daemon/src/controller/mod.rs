@@ -15,6 +15,7 @@ use crate::config::{AppConfig, OutputMode, TranscriptionConfig};
 use crate::controller::events::{ControllerEvent, ControllerOutput};
 use crate::controller::queue::SingleFlightQueue;
 use crate::controller::state::ControllerState;
+use crate::doctor::report::{CheckStatus, DoctorState};
 use crate::doctor::{run_doctor, DoctorReport};
 use crate::error::{AppError, AppResult};
 use crate::output::ClipboardOutput;
@@ -100,7 +101,9 @@ where
     RunDoctorFn: FnMut(&AppPaths, &AppConfig) -> DoctorReport,
     WriteClipboardFn: Fn(&str) -> AppResult<()>,
 {
-    let mut state = ControllerState::Idle;
+    let startup_report = doctor_runner(&context.paths, &context.config);
+    let mut post_job_state = idle_state_from_doctor_report(&startup_report);
+    let mut state = post_job_state.clone();
     let mut active_recording: Option<Box<dyn RecordingHandle>> = None;
     let mut recording_started_at: Option<Instant> = None;
     let mut queue = SingleFlightQueue::new(1);
@@ -115,6 +118,13 @@ where
         match event {
             ControllerEvent::Toggle => match state {
                 ControllerState::Idle | ControllerState::Degraded(_) => {
+                    if let ControllerState::Unavailable(reason) = &post_job_state {
+                        state = post_job_state.clone();
+                        send_state(&output_tx, &state)?;
+                        send_notification(&output_tx, &format!("Recording disabled: {reason}"))?;
+                        continue;
+                    }
+
                     let watchdog_cfg = CaptureWatchdogConfig {
                         arming_timeout: std::time::Duration::from_millis(
                             context.config.audio.arming_timeout_ms,
@@ -153,9 +163,16 @@ where
                                 } else {
                                     state = ControllerState::Processing;
                                     send_state(&output_tx, &state)?;
-                                    spawn_next_job(
+                                    if let Err(error) = spawn_next_job(
                                         &context, &mut queue, &worker.tx, &output_tx, &wav_path,
-                                    )?;
+                                    ) {
+                                        let detail = format!(
+                                            "failed to start transcription worker job: {error}"
+                                        );
+                                        state = ControllerState::Degraded(detail.clone());
+                                        send_state(&output_tx, &state)?;
+                                        send_notification(&output_tx, &detail)?;
+                                    }
                                 }
                             }
                             Err(error) => {
@@ -173,14 +190,26 @@ where
                         "Transcription already in progress; finishing current job.",
                     )?;
                 }
+                ControllerState::Unavailable(ref reason) => {
+                    send_notification(&output_tx, &format!("Recording disabled: {reason}"))?;
+                }
             },
             ControllerEvent::RunDoctor => {
                 let report = doctor_runner(&context.paths, &context.config);
+                post_job_state = idle_state_from_doctor_report(&report);
                 output_tx
                     .send(ControllerOutput::DoctorReport(report))
                     .map_err(|_| {
                         AppError::ChannelClosed("controller output channel closed".to_owned())
                     })?;
+                if !matches!(
+                    state,
+                    ControllerState::Recording | ControllerState::Processing
+                ) && state != post_job_state
+                {
+                    state = post_job_state.clone();
+                    send_state(&output_tx, &state)?;
+                }
             }
             ControllerEvent::Tick => {
                 if let Some(recording) = active_recording.as_ref() {
@@ -234,9 +263,16 @@ where
                                 } else {
                                     state = ControllerState::Processing;
                                     send_state(&output_tx, &state)?;
-                                    spawn_next_job(
+                                    if let Err(error) = spawn_next_job(
                                         &context, &mut queue, &worker.tx, &output_tx, &wav_path,
-                                    )?;
+                                    ) {
+                                        let detail = format!(
+                                            "failed to start transcription worker job: {error}"
+                                        );
+                                        state = ControllerState::Degraded(detail.clone());
+                                        send_state(&output_tx, &state)?;
+                                        send_notification(&output_tx, &detail)?;
+                                    }
                                 }
                             }
                             Err(error) => {
@@ -282,7 +318,7 @@ where
                                     "controller output channel closed".to_owned(),
                                 )
                             })?;
-                        state = ControllerState::Idle;
+                        state = post_job_state.clone();
                         send_state(&output_tx, &state)?;
                         send_notification(&output_tx, "Transcription complete")?;
                     }
@@ -365,6 +401,7 @@ fn spawn_next_job(
         .ok_or_else(|| AppError::Controller("queue was expected to have a job".to_owned()))?;
 
     if wav_path != requested_wav_path {
+        queue.mark_finished();
         return Err(AppError::Controller(format!(
             "queue scheduling mismatch: expected {}, got {}",
             requested_wav_path.display(),
@@ -387,11 +424,37 @@ fn spawn_next_job(
             config: transcription_cfg,
         })
         .map_err(|_| {
+            queue.mark_finished();
             let _ = output_tx.send(ControllerOutput::Notification(
                 "transcription worker channel is closed".to_owned(),
             ));
             AppError::Controller("transcription worker channel closed".to_owned())
         })
+}
+
+fn idle_state_from_doctor_report(report: &DoctorReport) -> ControllerState {
+    match report.state {
+        DoctorState::Ready => ControllerState::Idle,
+        DoctorState::Degraded => ControllerState::Degraded(summarize_doctor_issues(
+            report,
+            &[CheckStatus::Warn, CheckStatus::Fail],
+        )),
+        DoctorState::Unavailable => {
+            ControllerState::Unavailable(summarize_doctor_issues(report, &[CheckStatus::Fail]))
+        }
+    }
+}
+
+fn summarize_doctor_issues(report: &DoctorReport, statuses: &[CheckStatus]) -> String {
+    let issue = report
+        .checks
+        .iter()
+        .find(|check| check.required && statuses.contains(&check.status));
+    if let Some(check) = issue {
+        format!("doctor {}: {}", check.name, check.detail)
+    } else {
+        "doctor checks reported dependency issues".to_owned()
+    }
 }
 
 fn send_state(output_tx: &Sender<ControllerOutput>, state: &ControllerState) -> AppResult<()> {
@@ -418,7 +481,7 @@ mod tests {
     use crate::config::OutputMode;
     use crate::controller::events::{ControllerEvent, ControllerOutput};
     use crate::controller::state::ControllerState;
-    use crate::doctor::report::{DoctorReport, DoctorState};
+    use crate::doctor::report::{CheckResult, CheckStatus, DoctorReport, DoctorState};
     use crate::error::{AppError, AppResult};
     use crate::transcription::TranscriptResult;
     use crossbeam_channel::{Receiver, Sender};
@@ -468,6 +531,20 @@ mod tests {
             generated_at_rfc3339: "2026-02-25T00:00:00Z".to_owned(),
             state: DoctorState::Ready,
             checks: Vec::new(),
+        }
+    }
+
+    fn unavailable_doctor_report() -> DoctorReport {
+        DoctorReport {
+            generated_at_rfc3339: "2026-02-25T00:00:00Z".to_owned(),
+            state: DoctorState::Unavailable,
+            checks: vec![CheckResult {
+                name: "whisper-cli".to_owned(),
+                status: CheckStatus::Fail,
+                detail: "binary not found in PATH".to_owned(),
+                required: true,
+                remediation: Some("install whisper-cli".to_owned()),
+            }],
         }
     }
 
@@ -878,6 +955,62 @@ mod tests {
     }
 
     #[test]
+    fn controller_blocks_toggle_when_startup_doctor_is_unavailable() {
+        let temp = tempfile::TempDir::new().expect("tempdir");
+        let context = sample_context(temp.path());
+        let start_attempts = Arc::new(AtomicUsize::new(0));
+        let start_attempts_for_start = start_attempts.clone();
+        let (event_tx, event_rx) = crossbeam_channel::unbounded::<ControllerEvent>();
+        let (output_tx, output_rx) = crossbeam_channel::unbounded::<ControllerOutput>();
+        let (_completion_tx, completion_rx) =
+            crossbeam_channel::unbounded::<Result<TranscriptResult, String>>();
+        let worker_exited = Arc::new(AtomicBool::new(false));
+        let (worker_tx, worker_join) =
+            spawn_stub_worker(event_tx.clone(), completion_rx, worker_exited.clone());
+
+        let controller = thread::spawn(move || {
+            run_controller_loop_with(
+                context,
+                event_rx,
+                output_tx,
+                move |_output_dir, _watchdog| {
+                    start_attempts_for_start.fetch_add(1, Ordering::SeqCst);
+                    Err(AppError::Capture("should not start".to_owned()))
+                },
+                |_paths, _config| unavailable_doctor_report(),
+                |_text| Ok(()),
+                WorkerHandles {
+                    tx: worker_tx,
+                    join: worker_join,
+                },
+            )
+        });
+
+        assert!(matches!(
+            recv_output(&output_rx),
+            ControllerOutput::StateChanged(ControllerState::Unavailable(reason))
+                if reason.contains("doctor whisper-cli")
+        ));
+
+        event_tx.send(ControllerEvent::Toggle).expect("toggle");
+        assert!(matches!(
+            recv_output(&output_rx),
+            ControllerOutput::Notification(message)
+                if message.contains("Recording disabled:")
+        ));
+        assert_eq!(start_attempts.load(Ordering::SeqCst), 0);
+
+        event_tx.send(ControllerEvent::Shutdown).expect("shutdown");
+        assert!(matches!(recv_output(&output_rx), ControllerOutput::Stopped));
+
+        controller
+            .join()
+            .expect("join controller")
+            .expect("controller result");
+        assert!(worker_exited.load(Ordering::SeqCst));
+    }
+
+    #[test]
     fn controller_shutdown_drains_worker_and_active_recording() {
         let temp = tempfile::TempDir::new().expect("tempdir");
         let context = sample_context(temp.path());
@@ -947,9 +1080,10 @@ mod tests {
 
         assert_eq!(stop_count.load(Ordering::SeqCst), 1);
         assert!(worker_exited.load(Ordering::SeqCst));
-        assert!(
-            doctor_calls.lock().expect("lock doctor calls").is_empty(),
-            "doctor runner should not be called in shutdown drain test"
+        assert_eq!(
+            doctor_calls.lock().expect("lock doctor calls").len(),
+            1,
+            "doctor runner should be called once during startup state initialization"
         );
     }
 }

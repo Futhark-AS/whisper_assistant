@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crossbeam_channel::TryRecvError;
+
 use crate::bootstrap::{bootstrap_env, AppPaths};
 use crate::capture::devices::list_input_devices;
 use crate::config::AppConfig;
@@ -18,26 +20,35 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
     paths.ensure_dirs()?;
     bootstrap_env(&paths)?;
 
-    let topology = RuntimeTopology::new();
+    let RuntimeTopology {
+        controller_event_tx,
+        controller_event_rx,
+        controller_output_tx,
+        controller_output_rx,
+    } = RuntimeTopology::new();
     let controller_context = ControllerContext {
         config: config.clone(),
         paths: paths.clone(),
     };
+    let controller_event_tx_for_loop = controller_event_tx.clone();
+    let (controller_result_tx, controller_result_rx) = crossbeam_channel::bounded(1);
 
-    let controller_event_tx = topology.controller_event_tx.clone();
-    let controller_output_tx = topology.controller_output_tx.clone();
-
-    let controller_join = thread::Builder::new()
-        .name("quedo-controller".to_owned())
-        .spawn(move || {
-            let _ = run_controller_loop(
-                controller_context,
-                topology.controller_event_rx,
-                controller_event_tx,
-                controller_output_tx,
-            );
-        })
-        .map_err(|error| AppError::Controller(format!("failed to spawn controller: {error}")))?;
+    let mut controller_join = Some(
+        thread::Builder::new()
+            .name("quedo-controller".to_owned())
+            .spawn(move || {
+                let result = run_controller_loop(
+                    controller_context,
+                    controller_event_rx,
+                    controller_event_tx_for_loop,
+                    controller_output_tx,
+                );
+                let _ = controller_result_tx.send(result);
+            })
+            .map_err(|error| {
+                AppError::Controller(format!("failed to spawn controller: {error}"))
+            })?,
+    );
 
     let notifier = Notifier::new(config.output.enable_notifications);
     let ui = UiFrontend::new(&config.hotkey.binding)?;
@@ -50,14 +61,14 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
     .map_err(|error| AppError::Controller(format!("failed to register ctrl-c handler: {error}")))?;
 
     #[cfg(not(target_os = "macos"))]
-    spawn_stdin_command_thread(topology.controller_event_tx.clone())?;
+    spawn_stdin_command_thread(controller_event_tx.clone())?;
 
     let mut last_tick = Instant::now();
     let mut stopping = false;
 
     loop {
         if !stopping && last_tick.elapsed() >= Duration::from_millis(150) {
-            let _ = topology.controller_event_tx.send(ControllerEvent::Tick);
+            let _ = controller_event_tx.send(ControllerEvent::Tick);
             last_tick = Instant::now();
         }
 
@@ -65,40 +76,96 @@ pub fn run_app(config: AppConfig, paths: AppPaths) -> AppResult<()> {
             if matches!(event, ControllerEvent::Shutdown) {
                 stopping = true;
             }
-            let _ = topology.controller_event_tx.send(event);
+            let _ = controller_event_tx.send(event);
         }
 
         if !stopping && shutdown.load(Ordering::SeqCst) {
             stopping = true;
-            let _ = topology.controller_event_tx.send(ControllerEvent::Shutdown);
+            let _ = controller_event_tx.send(ControllerEvent::Shutdown);
         }
 
-        while let Ok(output) = topology.controller_output_rx.try_recv() {
-            match output {
-                ControllerOutput::StateChanged(state) => {
-                    ui.set_state(&state)?;
-                    if let crate::controller::state::ControllerState::Degraded(reason) = &state {
-                        let _ = notifier.notify("Quedo Degraded", reason);
+        loop {
+            match controller_output_rx.try_recv() {
+                Ok(output) => match output {
+                    ControllerOutput::StateChanged(state) => {
+                        ui.set_state(&state)?;
+                        match &state {
+                            crate::controller::state::ControllerState::Degraded(reason) => {
+                                let _ = notifier.notify("Quedo Degraded", reason);
+                            }
+                            crate::controller::state::ControllerState::Unavailable(reason) => {
+                                let _ = notifier.notify("Quedo Unavailable", reason);
+                            }
+                            _ => {}
+                        }
                     }
+                    ControllerOutput::Notification(message) => {
+                        tracing::info!("{message}");
+                        let _ = notifier.notify("Quedo", &message);
+                    }
+                    ControllerOutput::DoctorReport(report) => {
+                        tracing::info!("doctor report emitted");
+                        println!("{}", report.render_text());
+                    }
+                    ControllerOutput::TranscriptReady(result) => {
+                        tracing::info!(run_id = %result.run_id, "transcript copied to clipboard");
+                        let _ = notifier.notify("Quedo", "Transcript copied to clipboard");
+                    }
+                    ControllerOutput::Stopped => {
+                        let join_result = controller_join
+                            .take()
+                            .expect("controller join handle missing")
+                            .join()
+                            .map_err(|_| {
+                                AppError::Controller("controller thread panicked".to_owned())
+                            });
+                        let loop_result = controller_result_rx.recv().map_err(|_| {
+                            AppError::Controller(
+                                "controller result channel closed before completion".to_owned(),
+                            )
+                        })?;
+                        join_result?;
+                        loop_result?;
+                        return Ok(());
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    let join_result = controller_join
+                        .take()
+                        .expect("controller join handle missing")
+                        .join()
+                        .map_err(|_| AppError::Controller("controller thread panicked".to_owned()));
+                    let loop_result = controller_result_rx.try_recv().ok().unwrap_or_else(|| {
+                        Err(AppError::Controller(
+                            "controller output channel disconnected".to_owned(),
+                        ))
+                    });
+                    join_result?;
+                    return loop_result;
                 }
-                ControllerOutput::Notification(message) => {
-                    tracing::info!("{message}");
-                    let _ = notifier.notify("Quedo", &message);
-                }
-                ControllerOutput::DoctorReport(report) => {
-                    tracing::info!("doctor report emitted");
-                    println!("{}", report.render_text());
-                }
-                ControllerOutput::TranscriptReady(result) => {
-                    tracing::info!(run_id = %result.run_id, "transcript copied to clipboard");
-                    let _ = notifier.notify("Quedo", "Transcript copied to clipboard");
-                }
-                ControllerOutput::Stopped => {
-                    controller_join.join().map_err(|_| {
-                        AppError::Controller("controller thread panicked".to_owned())
-                    })?;
-                    return Ok(());
-                }
+            }
+        }
+
+        match controller_result_rx.try_recv() {
+            Ok(loop_result) => {
+                controller_join
+                    .take()
+                    .expect("controller join handle missing")
+                    .join()
+                    .map_err(|_| AppError::Controller("controller thread panicked".to_owned()))?;
+                return match loop_result {
+                    Ok(()) => Err(AppError::Controller(
+                        "controller loop exited without stop signal".to_owned(),
+                    )),
+                    Err(error) => Err(error),
+                };
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                return Err(AppError::Controller(
+                    "controller result channel disconnected".to_owned(),
+                ))
             }
         }
 
@@ -150,9 +217,9 @@ pub fn install_autostart(paths: &AppPaths) -> AppResult<PathBuf> {
 
     if cfg!(target_os = "macos") {
         let plist = format!(
-            r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
 <dict>
   <key>Label</key>
   <string>io.quedo.daemon</string>
@@ -255,6 +322,12 @@ mod tests {
             assert!(text.contains("<key>ProgramArguments</key>"));
             assert!(text.contains(&format!("<string>{}</string>", executable.display())));
             assert!(text.contains("<string>run</string>"));
+            assert!(
+                !text.contains("\\\""),
+                "plist should not contain literal escaped quotes"
+            );
+            let parsed = roxmltree::Document::parse(&text).expect("valid plist xml");
+            assert_eq!(parsed.root_element().tag_name().name(), "plist");
         } else {
             assert!(text.contains("[Desktop Entry]"));
             assert!(text.contains("Type=Application"));
