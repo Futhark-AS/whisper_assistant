@@ -37,6 +37,11 @@ final class MenuBarController: NSObject {
 
         let menu = NSMenu()
 
+        let versionItem = NSMenuItem(title: appVersionMenuTitle(), action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+        menu.addItem(.separator())
+
         if let copy = contract.notificationCopy {
             let status = NSMenuItem(title: copy, action: nil, keyEquivalent: "")
             status.isEnabled = false
@@ -215,5 +220,18 @@ final class MenuBarController: NSObject {
         }
 
         actionHandler?(action)
+    }
+
+    private func appVersionMenuTitle() -> String {
+        let info = Bundle.main.infoDictionary
+        let shortVersion = (info?["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedVersion: String
+        if let shortVersion, !shortVersion.isEmpty {
+            normalizedVersion = shortVersion.hasPrefix("v") ? shortVersion : "v\(shortVersion)"
+        } else {
+            normalizedVersion = "dev"
+        }
+        return "Quedo \(normalizedVersion)"
     }
 }

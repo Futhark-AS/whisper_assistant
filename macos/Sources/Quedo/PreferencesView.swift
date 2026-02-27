@@ -340,6 +340,38 @@ struct PreferencesView: View {
                         .frame(maxWidth: 520)
                 }
 
+                settingRow("Detected models") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Menu("Use Installed Model") {
+                                if model.availableWhisperCppModels.isEmpty {
+                                    Text("No local models found")
+                                } else {
+                                    ForEach(model.availableWhisperCppModels, id: \.self) { modelPath in
+                                        Button {
+                                            model.whisperCppModelPath = modelPath
+                                        } label: {
+                                            Text(whisperCppModelLabel(modelPath))
+                                        }
+                                    }
+                                }
+                            }
+                            .menuStyle(.borderlessButton)
+
+                            Button("Refresh") {
+                                model.refreshWhisperCppModels()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        if model.availableWhisperCppModels.isEmpty {
+                            Text("No local .bin models detected in whisper model directories.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 settingRow("whisper.cpp runtime") {
                     Picker("", selection: $model.whisperCppRuntime) {
                         ForEach(WhisperCppRuntime.allCases, id: \.self) { runtime in
@@ -583,6 +615,16 @@ struct PreferencesView: View {
             return "CLI"
         }
     }
+
+    private func whisperCppModelLabel(_ modelPath: String) -> String {
+        let url = URL(fileURLWithPath: modelPath)
+        let fileName = url.lastPathComponent
+        if fileName.isEmpty || fileName == modelPath {
+            return modelPath
+        }
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        return "\(fileName) (\(parent))"
+    }
 }
 
 @MainActor
@@ -599,6 +641,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var openAIModel = "gpt-4o-mini-transcribe"
     @Published var whisperCppModelPath = "ggml-large-v3.bin"
     @Published var whisperCppRuntime: WhisperCppRuntime = .auto
+    @Published var availableWhisperCppModels: [String] = []
 
     @Published var hotkeysEnabled = true
     @Published var hotkeyPreset: HotkeyPreset = .fnControl
@@ -703,6 +746,10 @@ final class PreferencesViewModel: ObservableObject {
 
     func clearVocabulary() {
         vocabularyText = ""
+    }
+
+    func refreshWhisperCppModels() {
+        availableWhisperCppModels = discoveredWhisperCppModels(currentSelection: normalize(whisperCppModelPath))
     }
 
     func clearAPIKeyInput(_ provider: ProviderKind) {
@@ -812,6 +859,7 @@ final class PreferencesViewModel: ObservableObject {
             openAIAPIKeyInput = ""
             hasGroqKey = (try await configurationManager.loadAPIKey(for: .groq)) != nil
             hasOpenAIKey = (try await configurationManager.loadAPIKey(for: .openAI)) != nil
+            refreshWhisperCppModels()
 
             statusMessage = nil
             statusIsError = false
@@ -825,6 +873,7 @@ final class PreferencesViewModel: ObservableObject {
         apply(settings: .default)
         groqAPIKeyInput = ""
         openAIAPIKeyInput = ""
+        refreshWhisperCppModels()
         statusMessage = "Defaults loaded. Save to apply."
         statusIsError = false
     }
@@ -833,6 +882,7 @@ final class PreferencesViewModel: ObservableObject {
         apply(settings: loadedSettings)
         groqAPIKeyInput = ""
         openAIAPIKeyInput = ""
+        refreshWhisperCppModels()
         statusMessage = "Changes discarded."
         statusIsError = false
     }
@@ -1018,6 +1068,50 @@ final class PreferencesViewModel: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
+    private func discoveredWhisperCppModels(currentSelection: String) -> [String] {
+        let fileManager = FileManager.default
+        let directories = [
+            "/opt/homebrew/opt/whisper-cpp/share/whisper/models",
+            "/usr/local/opt/whisper-cpp/share/whisper/models",
+            "/opt/homebrew/share/whisper/models",
+            "/usr/local/share/whisper/models",
+            "~/.cache/whisper"
+        ].map { ($0 as NSString).expandingTildeInPath }
+
+        var models = Set<String>()
+        for directory in directories {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+                continue
+            }
+
+            let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+            let entries = (try? fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+
+            for entry in entries where entry.pathExtension.lowercased() == "bin" {
+                models.insert(entry.path)
+            }
+        }
+
+        let expandedSelection = (currentSelection as NSString).expandingTildeInPath
+        if !expandedSelection.isEmpty, fileManager.fileExists(atPath: expandedSelection) {
+            models.insert(expandedSelection)
+        }
+
+        return models.sorted { lhs, rhs in
+            let leftName = URL(fileURLWithPath: lhs).lastPathComponent
+            let rightName = URL(fileURLWithPath: rhs).lastPathComponent
+            if leftName == rightName {
+                return lhs < rhs
+            }
+            return leftName < rightName
+        }
+    }
+
     private func apply(settings: AppSettings) {
         outputMode = settings.outputMode
         recordingInteraction = settings.recordingInteraction
@@ -1031,6 +1125,7 @@ final class PreferencesViewModel: ObservableObject {
         openAIModel = settings.provider.openAIModel
         whisperCppModelPath = settings.provider.whisperCppModelPath
         whisperCppRuntime = settings.provider.whisperCppRuntime
+        availableWhisperCppModels = discoveredWhisperCppModels(currentSelection: normalize(settings.provider.whisperCppModelPath))
 
         hotkeysEnabled = !settings.hotkeys.isEmpty
         hotkeyPreset = detectPreset(hotkeys: settings.hotkeys)

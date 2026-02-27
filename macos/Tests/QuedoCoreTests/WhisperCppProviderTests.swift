@@ -14,7 +14,11 @@ final class WhisperCppProviderTests: XCTestCase {
         let audioURL = workspace.appendingPathComponent("input.wav")
         try Data().write(to: audioURL)
 
-        let provider = WhisperCppProvider(timeoutSeconds: 10, executablePath: scriptURL.path)
+        let provider = WhisperCppProvider(
+            timeoutSeconds: 10,
+            executablePath: scriptURL.path,
+            runtimeProvider: { .cli }
+        )
         let request = TranscriptionRequest(
             audioFileURL: audioURL,
             language: "auto",
@@ -37,7 +41,11 @@ final class WhisperCppProviderTests: XCTestCase {
         try Data().write(to: audioURL)
         let missingModel = workspace.appendingPathComponent("missing-model.bin")
 
-        let provider = WhisperCppProvider(timeoutSeconds: 10, executablePath: scriptURL.path)
+        let provider = WhisperCppProvider(
+            timeoutSeconds: 10,
+            executablePath: scriptURL.path,
+            runtimeProvider: { .cli }
+        )
         let request = TranscriptionRequest(
             audioFileURL: audioURL,
             language: "auto",
