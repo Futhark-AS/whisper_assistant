@@ -75,4 +75,27 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(loaded.language, "en")
         XCTAssertEqual(loaded.outputMode, .clipboard)
     }
+
+    func testLegacyProviderConfigDecodesWithoutWhisperCppModelPath() throws {
+        let legacyJSON = """
+        {
+          "provider": {
+            "primary": "groq",
+            "fallback": "openAI",
+            "groqAPIKeyRef": "groq_api_key",
+            "openAIAPIKeyRef": "openai_api_key",
+            "timeoutSeconds": 12,
+            "groqModel": "whisper-large-v3",
+            "openAIModel": "gpt-4o-mini-transcribe"
+          }
+        }
+        """
+
+        let data = Data(legacyJSON.utf8)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+
+        XCTAssertEqual(decoded.provider.primary, .groq)
+        XCTAssertEqual(decoded.provider.fallback, .openAI)
+        XCTAssertEqual(decoded.provider.whisperCppModelPath, ProviderConfiguration.defaultValue.whisperCppModelPath)
+    }
 }

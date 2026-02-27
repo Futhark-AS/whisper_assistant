@@ -79,6 +79,16 @@ Optional signing/notarization in CI is enabled when these repo secrets exist:
 - `APPLE_TEAM_ID`
 - `APPLE_APP_PASSWORD`
 
+### whisper.cpp Bootstrap (macOS app provider)
+
+To use the local `whisper.cpp` provider in the macOS app:
+
+```bash
+./macos/scripts/bootstrap-whisper-cpp.sh
+```
+
+Then set `Preferences -> Providers -> whisper.cpp model` to the printed model path.
+
 ## Install with Homebrew (macOS app)
 
 ```bash

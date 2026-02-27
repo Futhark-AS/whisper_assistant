@@ -81,8 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let openAIProvider = OpenAIProvider(timeoutSeconds: bootSettings.provider.timeoutSeconds) {
             try await configurationManager.loadAPIKey(for: .openAI) ?? ""
         }
+        let whisperCppProvider = WhisperCppProvider(
+            timeoutSeconds: bootSettings.provider.timeoutSeconds
+        ) {
+            try await configurationManager.loadSettings().provider.whisperCppModelPath
+        }
         let transcriptionPipeline = TranscriptionPipeline(
-            providers: [groqProvider, openAIProvider],
+            providers: [groqProvider, openAIProvider, whisperCppProvider],
             requestTimeoutSeconds: bootSettings.provider.timeoutSeconds
         )
 

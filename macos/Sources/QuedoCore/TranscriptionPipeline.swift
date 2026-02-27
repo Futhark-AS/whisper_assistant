@@ -383,6 +383,8 @@ public actor TranscriptionPipeline {
             return settings.provider.groqModel
         case .openAI:
             return settings.provider.openAIModel
+        case .whisperCpp:
+            return settings.provider.whisperCppModelPath
         }
     }
 

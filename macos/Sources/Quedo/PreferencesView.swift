@@ -310,7 +310,7 @@ struct PreferencesView: View {
 
             PreferencesCard(
                 title: "Models and Timeout",
-                subtitle: "Tune model names and request timeout."
+                subtitle: "Tune remote model names, local model path, and request timeout."
             ) {
                 settingRow("Timeout") {
                     Stepper(value: $model.timeoutSeconds, in: 1...120) {
@@ -331,6 +331,13 @@ struct PreferencesView: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: 340)
+                }
+
+                settingRow("whisper.cpp model") {
+                    TextField("ggml-large-v3.bin or /abs/path/model.bin", text: $model.whisperCppModelPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: 520)
                 }
             }
         }
@@ -550,6 +557,8 @@ struct PreferencesView: View {
             return "Groq"
         case .openAI:
             return "OpenAI"
+        case .whisperCpp:
+            return "whisper.cpp"
         }
     }
 }
@@ -566,6 +575,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var timeoutSeconds = 12
     @Published var groqModel = "whisper-large-v3"
     @Published var openAIModel = "gpt-4o-mini-transcribe"
+    @Published var whisperCppModelPath = "ggml-large-v3.bin"
 
     @Published var hotkeysEnabled = true
     @Published var hotkeyPreset: HotkeyPreset = .fnControl
@@ -678,6 +688,8 @@ final class PreferencesViewModel: ObservableObject {
             groqAPIKeyInput = ""
         case .openAI:
             openAIAPIKeyInput = ""
+        case .whisperCpp:
+            break
         }
     }
 
@@ -713,6 +725,8 @@ final class PreferencesViewModel: ObservableObject {
             groqAPIKeyInput = value
         case .openAI:
             openAIAPIKeyInput = value
+        case .whisperCpp:
+            break
         }
     }
 
@@ -755,6 +769,8 @@ final class PreferencesViewModel: ObservableObject {
                 hasOpenAIKey = false
                 openAIAPIKeyInput = ""
                 statusMessage = "OpenAI key removed."
+            case .whisperCpp:
+                break
             }
             statusIsError = false
         } catch {
@@ -840,6 +856,7 @@ final class PreferencesViewModel: ObservableObject {
         loadedSettings.provider.timeoutSeconds = timeoutSeconds
         loadedSettings.provider.groqModel = normalize(groqModel)
         loadedSettings.provider.openAIModel = normalize(openAIModel)
+        loadedSettings.provider.whisperCppModelPath = normalize(whisperCppModelPath)
 
         do {
             loadedSettings.hotkeys = try hotkeysForSave()
@@ -988,6 +1005,7 @@ final class PreferencesViewModel: ObservableObject {
         timeoutSeconds = settings.provider.timeoutSeconds
         groqModel = settings.provider.groqModel
         openAIModel = settings.provider.openAIModel
+        whisperCppModelPath = settings.provider.whisperCppModelPath
 
         hotkeysEnabled = !settings.hotkeys.isEmpty
         hotkeyPreset = detectPreset(hotkeys: settings.hotkeys)
@@ -1005,6 +1023,7 @@ final class PreferencesViewModel: ObservableObject {
         let timeoutSeconds: Int
         let groqModel: String
         let openAIModel: String
+        let whisperCppModelPath: String
         let hotkeysEnabled: Bool
         let hotkeyPreset: HotkeyPreset
         let manualToggleHotkeyText: String
@@ -1024,6 +1043,7 @@ final class PreferencesViewModel: ObservableObject {
             timeoutSeconds: timeoutSeconds,
             groqModel: normalize(groqModel),
             openAIModel: normalize(openAIModel),
+            whisperCppModelPath: normalize(whisperCppModelPath),
             hotkeysEnabled: hotkeysEnabled,
             hotkeyPreset: hotkeyPreset,
             manualToggleHotkeyText: normalizeHotkey(manualToggleHotkeyText),
@@ -1045,6 +1065,7 @@ final class PreferencesViewModel: ObservableObject {
             timeoutSeconds: settings.provider.timeoutSeconds,
             groqModel: normalize(settings.provider.groqModel),
             openAIModel: normalize(settings.provider.openAIModel),
+            whisperCppModelPath: normalize(settings.provider.whisperCppModelPath),
             hotkeysEnabled: !settings.hotkeys.isEmpty,
             hotkeyPreset: detectPreset(hotkeys: settings.hotkeys),
             manualToggleHotkeyText: normalizeHotkey(byAction["toggle"].flatMap(HotkeyCodec.render) ?? ""),

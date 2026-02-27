@@ -38,6 +38,8 @@ public enum ProviderKind: String, Codable, Sendable, CaseIterable {
     case groq
     /// OpenAI hosted model endpoints.
     case openAI
+    /// Local whisper.cpp CLI backend.
+    case whisperCpp
 }
 
 /// Mode for handling recording with hotkeys.
@@ -173,6 +175,20 @@ public struct ProviderConfiguration: Codable, Sendable {
     public var groqModel: String
     /// Selected model identifier for OpenAI.
     public var openAIModel: String
+    /// whisper.cpp model path or model filename.
+    public var whisperCppModelPath: String
+
+    /// Baseline defaults for provider configuration.
+    public static let defaultValue = ProviderConfiguration(
+        primary: .groq,
+        fallback: .openAI,
+        groqAPIKeyRef: "groq_api_key",
+        openAIAPIKeyRef: "openai_api_key",
+        timeoutSeconds: 12,
+        groqModel: "whisper-large-v3",
+        openAIModel: "gpt-4o-mini-transcribe",
+        whisperCppModelPath: "ggml-large-v3.bin"
+    )
 
     /// Creates provider configuration values.
     public init(
@@ -182,7 +198,8 @@ public struct ProviderConfiguration: Codable, Sendable {
         openAIAPIKeyRef: String,
         timeoutSeconds: Int,
         groqModel: String,
-        openAIModel: String
+        openAIModel: String,
+        whisperCppModelPath: String
     ) {
         self.primary = primary
         self.fallback = fallback
@@ -191,6 +208,44 @@ public struct ProviderConfiguration: Codable, Sendable {
         self.timeoutSeconds = timeoutSeconds
         self.groqModel = groqModel
         self.openAIModel = openAIModel
+        self.whisperCppModelPath = whisperCppModelPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case primary
+        case fallback
+        case groqAPIKeyRef
+        case openAIAPIKeyRef
+        case timeoutSeconds
+        case groqModel
+        case openAIModel
+        case whisperCppModelPath
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ProviderConfiguration.defaultValue
+
+        primary = try container.decodeIfPresent(ProviderKind.self, forKey: .primary) ?? defaults.primary
+        fallback = try container.decodeIfPresent(ProviderKind.self, forKey: .fallback) ?? defaults.fallback
+        groqAPIKeyRef = try container.decodeIfPresent(String.self, forKey: .groqAPIKeyRef) ?? defaults.groqAPIKeyRef
+        openAIAPIKeyRef = try container.decodeIfPresent(String.self, forKey: .openAIAPIKeyRef) ?? defaults.openAIAPIKeyRef
+        timeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? defaults.timeoutSeconds
+        groqModel = try container.decodeIfPresent(String.self, forKey: .groqModel) ?? defaults.groqModel
+        openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? defaults.openAIModel
+        whisperCppModelPath = try container.decodeIfPresent(String.self, forKey: .whisperCppModelPath) ?? defaults.whisperCppModelPath
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(primary, forKey: .primary)
+        try container.encode(fallback, forKey: .fallback)
+        try container.encode(groqAPIKeyRef, forKey: .groqAPIKeyRef)
+        try container.encode(openAIAPIKeyRef, forKey: .openAIAPIKeyRef)
+        try container.encode(timeoutSeconds, forKey: .timeoutSeconds)
+        try container.encode(groqModel, forKey: .groqModel)
+        try container.encode(openAIModel, forKey: .openAIModel)
+        try container.encode(whisperCppModelPath, forKey: .whisperCppModelPath)
     }
 }
 
@@ -247,15 +302,7 @@ public struct AppSettings: Codable, Sendable {
             HotkeyBinding(actionID: "retry", keyCode: 15, modifiers: [.control, .function]),
             HotkeyBinding(actionID: "cancel", keyCode: 53, modifiers: [.control, .function])
         ],
-        provider: ProviderConfiguration(
-            primary: .groq,
-            fallback: .openAI,
-            groqAPIKeyRef: "groq_api_key",
-            openAIAPIKeyRef: "openai_api_key",
-            timeoutSeconds: 12,
-            groqModel: "whisper-large-v3",
-            openAIModel: "gpt-4o-mini-transcribe"
-        )
+        provider: .defaultValue
     )
 
     private enum CodingKeys: String, CodingKey {

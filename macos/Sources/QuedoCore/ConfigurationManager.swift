@@ -32,6 +32,7 @@ public actor ConfigurationManager {
         static let envOutput = "TRANSCRIPTION_OUTPUT"
         static let envLaunchAtLogin = "LAUNCH_AT_LOGIN"
         static let envWhisperModel = "WHISPER_MODEL"
+        static let envWhisperCppModelPath = "WHISPER_CPP_MODEL_PATH"
         static let envTimeout = "GROQ_TIMEOUT"
         static let envVocabulary = "VOCABULARY"
     }
@@ -81,6 +82,9 @@ public actor ConfigurationManager {
 
     /// Stores provider API key in Keychain.
     public func saveAPIKey(_ key: String, for provider: ProviderKind) throws {
+        if provider == .whisperCpp {
+            return
+        }
         var secrets = try loadLocalSecrets()
         secrets[provider.rawValue] = key
         try saveLocalSecrets(secrets)
@@ -92,6 +96,8 @@ public actor ConfigurationManager {
                 sharedConfig[Constants.envGroqAPIKey] = key
             case .openAI:
                 sharedConfig[Constants.envOpenAIAPIKey] = key
+            case .whisperCpp:
+                break
             }
             try saveSharedConfigValues(sharedConfig)
         }
@@ -113,6 +119,9 @@ public actor ConfigurationManager {
 
     /// Removes provider API key from local and shared stores.
     public func clearAPIKey(for provider: ProviderKind) throws {
+        if provider == .whisperCpp {
+            return
+        }
         var secrets = try loadLocalSecrets()
         secrets.removeValue(forKey: provider.rawValue)
         try saveLocalSecrets(secrets)
@@ -124,6 +133,8 @@ public actor ConfigurationManager {
                 sharedConfig.removeValue(forKey: Constants.envGroqAPIKey)
             case .openAI:
                 sharedConfig.removeValue(forKey: Constants.envOpenAIAPIKey)
+            case .whisperCpp:
+                break
             }
             try saveSharedConfigValues(sharedConfig)
         }
@@ -145,6 +156,10 @@ public actor ConfigurationManager {
 
     /// Reads provider API key from local secrets first, then keychain fallback.
     public func loadAPIKey(for provider: ProviderKind) throws -> String? {
+        if provider == .whisperCpp {
+            return nil
+        }
+
         let localSecrets = try loadLocalSecrets()
         if let local = localSecrets[provider.rawValue], !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return local
@@ -152,7 +167,15 @@ public actor ConfigurationManager {
 
         if sharedConfigEnabled {
             let sharedConfig = try loadSharedConfigValues()
-            let sharedKeyName = (provider == .groq) ? Constants.envGroqAPIKey : Constants.envOpenAIAPIKey
+            let sharedKeyName: String
+            switch provider {
+            case .groq:
+                sharedKeyName = Constants.envGroqAPIKey
+            case .openAI:
+                sharedKeyName = Constants.envOpenAIAPIKey
+            case .whisperCpp:
+                return nil
+            }
             if let shared = sharedConfig[sharedKeyName], !shared.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 var updated = localSecrets
                 updated[provider.rawValue] = shared
@@ -260,6 +283,9 @@ public actor ConfigurationManager {
         if let model = shared[Constants.envWhisperModel]?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
             settings.provider.groqModel = model
         }
+        if let whisperCppModelPath = shared[Constants.envWhisperCppModelPath]?.trimmingCharacters(in: .whitespacesAndNewlines), !whisperCppModelPath.isEmpty {
+            settings.provider.whisperCppModelPath = whisperCppModelPath
+        }
 
         if let timeoutRaw = shared[Constants.envTimeout], let parsed = Int(timeoutRaw.trimmingCharacters(in: .whitespacesAndNewlines)) {
             settings.provider.timeoutSeconds = min(max(parsed, 1), 120)
@@ -297,6 +323,7 @@ public actor ConfigurationManager {
         shared[Constants.envOutput] = sharedOutputString(settings.outputMode)
         shared[Constants.envLaunchAtLogin] = settings.launchAtLoginEnabled ? "true" : "false"
         shared[Constants.envWhisperModel] = settings.provider.groqModel
+        shared[Constants.envWhisperCppModelPath] = settings.provider.whisperCppModelPath
         shared[Constants.envTimeout] = String(settings.provider.timeoutSeconds)
         shared[Constants.envVocabulary] = settings.vocabularyHints.joined(separator: ",")
 
@@ -359,6 +386,7 @@ public actor ConfigurationManager {
             Constants.envOutput,
             Constants.envLaunchAtLogin,
             Constants.envWhisperModel,
+            Constants.envWhisperCppModelPath,
             Constants.envTimeout,
             Constants.envVocabulary
         ]
@@ -516,6 +544,16 @@ public actor ConfigurationManager {
             issues.append(SettingsValidationIssue(field: "provider.openAIModel", message: "OpenAI model must not be empty"))
         }
 
+        let usesWhisperCpp = settings.provider.primary == .whisperCpp || settings.provider.fallback == .whisperCpp
+        if usesWhisperCpp, settings.provider.whisperCppModelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issues.append(
+                SettingsValidationIssue(
+                    field: "provider.whisperCppModelPath",
+                    message: "whisper.cpp model path must not be empty when whisper.cpp is enabled"
+                )
+            )
+        }
+
         if issues.isEmpty {
             return
         }
@@ -537,6 +575,7 @@ public actor ConfigurationManager {
             "timeoutSeconds": String(settings.provider.timeoutSeconds),
             "groqModel": settings.provider.groqModel,
             "openAIModel": settings.provider.openAIModel,
+            "whisperCppModelPath": settings.provider.whisperCppModelPath,
             "vocabularyHintsCount": String(settings.vocabularyHints.count)
         ]
     }

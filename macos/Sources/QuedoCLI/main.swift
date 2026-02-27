@@ -176,8 +176,14 @@ struct Doctor: AsyncParsableCommand {
         let openAI = OpenAIProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
             try await config.loadAPIKey(for: .openAI) ?? ""
         }
+        let whisperCpp = WhisperCppProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
+            try await config.loadSettings().provider.whisperCppModelPath
+        }
 
-        let pipeline = TranscriptionPipeline(providers: [groq, openAI], requestTimeoutSeconds: settings.provider.timeoutSeconds)
+        let pipeline = TranscriptionPipeline(
+            providers: [groq, openAI, whisperCpp],
+            requestTimeoutSeconds: settings.provider.timeoutSeconds
+        )
         let check = await pipeline.connectivityCheck(primary: settings.provider.primary, fallback: settings.provider.fallback)
         print("provider.primary.ok=\(check.primaryOK)")
         print("provider.fallback.ok=\(check.fallbackOK)")
@@ -316,8 +322,14 @@ struct Transcribe: AsyncParsableCommand {
         let openAI = OpenAIProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
             try await config.loadAPIKey(for: .openAI) ?? ""
         }
+        let whisperCpp = WhisperCppProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
+            try await config.loadSettings().provider.whisperCppModelPath
+        }
 
-        let pipeline = TranscriptionPipeline(providers: [groq, openAI], requestTimeoutSeconds: settings.provider.timeoutSeconds)
+        let pipeline = TranscriptionPipeline(
+            providers: [groq, openAI, whisperCpp],
+            requestTimeoutSeconds: settings.provider.timeoutSeconds
+        )
         let result = try await pipeline.transcribe(audioFileURL: source, settings: settings)
         print(result.text)
     }
