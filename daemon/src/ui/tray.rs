@@ -97,8 +97,6 @@ mod macos_tray {
             })
         }
     }
-
-    pub(super) use TrayController;
 }
 
 #[cfg(not(target_os = "macos"))]

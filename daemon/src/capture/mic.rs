@@ -429,6 +429,12 @@ mod linux_capture {
                 path.display()
             )));
         }
+        if metadata.len() == 44 {
+            return Err(AppError::Capture(format!(
+                "recorded audio is empty (WAV header present but no PCM frames): {}",
+                path.display()
+            )));
+        }
 
         let mut header = [0_u8; 12];
         let mut file = std::fs::File::open(path).map_err(|error| {

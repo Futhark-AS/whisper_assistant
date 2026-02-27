@@ -41,7 +41,7 @@ struct WorkerHandles {
     join: thread::JoinHandle<()>,
 }
 
-trait RecordingHandle: Send {
+trait RecordingHandle {
     fn watchdog_snapshot(&self) -> WatchdogSnapshot;
     fn stop(self: Box<Self>) -> AppResult<PathBuf>;
 }

@@ -3,7 +3,7 @@ use crate::error::AppResult;
 
 #[cfg(target_os = "macos")]
 mod macos_hotkey {
-    use global_hotkey::hotkey::{Code, HotKey, HotKeyCode, Modifiers};
+    use global_hotkey::hotkey::{Code, HotKey, Modifiers};
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager};
 
     use super::*;
@@ -48,7 +48,7 @@ mod macos_hotkey {
         }
     }
 
-    fn parse_binding(binding: &str) -> AppResult<(Modifiers, HotKeyCode)> {
+    fn parse_binding(binding: &str) -> AppResult<(Modifiers, Code)> {
         let tokens = binding
             .split('+')
             .map(|part| part.trim().to_ascii_lowercase())
@@ -112,8 +112,6 @@ mod macos_hotkey {
 
         Ok((modifiers, key))
     }
-
-    pub(super) use HotkeyController;
 }
 
 #[cfg(not(target_os = "macos"))]
