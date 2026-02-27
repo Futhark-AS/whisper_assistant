@@ -61,9 +61,17 @@ public protocol TranscriptionProvider: Sendable {
     /// Provider kind.
     var kind: ProviderKind { get }
 
+    /// Indicates whether this provider requires FLAC upload conversion.
+    var requiresFLACUpload: Bool { get }
+
     /// Runs transcription for a single request.
     func transcribe(request: TranscriptionRequest) async throws -> TranscriptionResponse
 
     /// Checks basic provider reachability.
     func checkHealth(timeoutSeconds: Int) async -> Bool
+}
+
+public extension TranscriptionProvider {
+    /// Default providers upload FLAC to match remote API expectations.
+    var requiresFLACUpload: Bool { true }
 }

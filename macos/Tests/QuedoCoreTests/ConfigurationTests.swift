@@ -97,5 +97,6 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(decoded.provider.primary, .groq)
         XCTAssertEqual(decoded.provider.fallback, .openAI)
         XCTAssertEqual(decoded.provider.whisperCppModelPath, ProviderConfiguration.defaultValue.whisperCppModelPath)
+        XCTAssertEqual(decoded.provider.whisperCppRuntime, .auto)
     }
 }

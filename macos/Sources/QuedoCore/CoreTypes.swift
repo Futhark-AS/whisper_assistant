@@ -42,6 +42,16 @@ public enum ProviderKind: String, Codable, Sendable, CaseIterable {
     case whisperCpp
 }
 
+/// Runtime mode for the local whisper.cpp provider.
+public enum WhisperCppRuntime: String, Codable, Sendable, CaseIterable {
+    /// Prefer server when available, otherwise fallback to CLI.
+    case auto
+    /// Force persistent local whisper-server.
+    case server
+    /// Force per-request whisper-cli invocation.
+    case cli
+}
+
 /// Mode for handling recording with hotkeys.
 public enum RecordingInteractionMode: String, Codable, Sendable, CaseIterable {
     /// Press once to start and once to stop.
@@ -177,6 +187,8 @@ public struct ProviderConfiguration: Codable, Sendable {
     public var openAIModel: String
     /// whisper.cpp model path or model filename.
     public var whisperCppModelPath: String
+    /// whisper.cpp runtime mode.
+    public var whisperCppRuntime: WhisperCppRuntime
 
     /// Baseline defaults for provider configuration.
     public static let defaultValue = ProviderConfiguration(
@@ -187,7 +199,8 @@ public struct ProviderConfiguration: Codable, Sendable {
         timeoutSeconds: 12,
         groqModel: "whisper-large-v3",
         openAIModel: "gpt-4o-mini-transcribe",
-        whisperCppModelPath: "ggml-large-v3.bin"
+        whisperCppModelPath: "ggml-large-v3.bin",
+        whisperCppRuntime: .auto
     )
 
     /// Creates provider configuration values.
@@ -199,7 +212,8 @@ public struct ProviderConfiguration: Codable, Sendable {
         timeoutSeconds: Int,
         groqModel: String,
         openAIModel: String,
-        whisperCppModelPath: String
+        whisperCppModelPath: String,
+        whisperCppRuntime: WhisperCppRuntime
     ) {
         self.primary = primary
         self.fallback = fallback
@@ -209,6 +223,7 @@ public struct ProviderConfiguration: Codable, Sendable {
         self.groqModel = groqModel
         self.openAIModel = openAIModel
         self.whisperCppModelPath = whisperCppModelPath
+        self.whisperCppRuntime = whisperCppRuntime
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -220,6 +235,7 @@ public struct ProviderConfiguration: Codable, Sendable {
         case groqModel
         case openAIModel
         case whisperCppModelPath
+        case whisperCppRuntime
     }
 
     public init(from decoder: any Decoder) throws {
@@ -234,6 +250,7 @@ public struct ProviderConfiguration: Codable, Sendable {
         groqModel = try container.decodeIfPresent(String.self, forKey: .groqModel) ?? defaults.groqModel
         openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? defaults.openAIModel
         whisperCppModelPath = try container.decodeIfPresent(String.self, forKey: .whisperCppModelPath) ?? defaults.whisperCppModelPath
+        whisperCppRuntime = try container.decodeIfPresent(WhisperCppRuntime.self, forKey: .whisperCppRuntime) ?? defaults.whisperCppRuntime
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -246,6 +263,7 @@ public struct ProviderConfiguration: Codable, Sendable {
         try container.encode(groqModel, forKey: .groqModel)
         try container.encode(openAIModel, forKey: .openAIModel)
         try container.encode(whisperCppModelPath, forKey: .whisperCppModelPath)
+        try container.encode(whisperCppRuntime, forKey: .whisperCppRuntime)
     }
 }
 

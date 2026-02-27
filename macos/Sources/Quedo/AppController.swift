@@ -390,7 +390,8 @@ actor AppControllerActor {
             timeoutSeconds: previous.provider.timeoutSeconds,
             groqModel: previous.provider.groqModel,
             openAIModel: previous.provider.openAIModel,
-            whisperCppModelPath: previous.provider.whisperCppModelPath
+            whisperCppModelPath: previous.provider.whisperCppModelPath,
+            whisperCppRuntime: previous.provider.whisperCppRuntime
         )
 
         do {

@@ -102,6 +102,35 @@ final class TranscriptionPipelineTests: XCTestCase {
         XCTAssertEqual(calls, 1)
         XCTAssertEqual(capturedExtensions, ["flac"])
     }
+
+    func testSkipsFlacConversionForProvidersThatDoNotRequireFlacUpload() async throws {
+        let file = try makeTestWAV(
+            name: "pipeline-test-upload-raw-\(UUID().uuidString)",
+            durationSeconds: 1.0
+        )
+
+        let counter = CallCounter()
+        let extensions = RequestedFileExtensionCollector()
+        let primary = CountingProvider(
+            kind: .whisperCpp,
+            counter: counter,
+            extensionCollector: extensions,
+            requiresFlacUpload: false
+        )
+        let fallback = MockProvider(kind: .openAI, mode: .alwaysSucceed("unused"))
+        let pipeline = TranscriptionPipeline(providers: [primary, fallback], requestTimeoutSeconds: 2)
+
+        var settings = AppSettings.default
+        settings.provider.primary = .whisperCpp
+        settings.provider.fallback = .openAI
+
+        _ = try await pipeline.transcribe(audioFileURL: file, settings: settings)
+        let calls = await counter.value()
+        let capturedExtensions = await extensions.values()
+
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(capturedExtensions, ["wav"])
+    }
 }
 
 private actor CallCounter {
@@ -133,6 +162,23 @@ private struct CountingProvider: TranscriptionProvider {
     let kind: ProviderKind
     let counter: CallCounter
     let extensionCollector: RequestedFileExtensionCollector
+    let requiresFlacUpload: Bool
+
+    var requiresFLACUpload: Bool {
+        requiresFlacUpload
+    }
+
+    init(
+        kind: ProviderKind,
+        counter: CallCounter,
+        extensionCollector: RequestedFileExtensionCollector,
+        requiresFlacUpload: Bool = true
+    ) {
+        self.kind = kind
+        self.counter = counter
+        self.extensionCollector = extensionCollector
+        self.requiresFlacUpload = requiresFlacUpload
+    }
 
     func transcribe(request: TranscriptionRequest) async throws -> TranscriptionResponse {
         await extensionCollector.append(request.audioFileURL.pathExtension.lowercased())

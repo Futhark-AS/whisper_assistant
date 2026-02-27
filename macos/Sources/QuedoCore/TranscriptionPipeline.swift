@@ -60,17 +60,44 @@ public actor TranscriptionPipeline {
         let preferredPrimary = fallbackIsSticky ? settings.provider.fallback : settings.provider.primary
         let preferredFallback = fallbackIsSticky ? settings.provider.primary : settings.provider.fallback
 
-        let preparedChunks = try prepareChunksForUpload(audioFileURL)
+        let preparedChunks = try prepareSourceChunks(audioFileURL)
+        var temporaryFiles = preparedChunks.temporaryFiles
+        var flacUploadChunks: [URL]?
         defer {
-            cleanupTemporaryFiles(preparedChunks.temporaryFiles)
+            cleanupTemporaryFiles(temporaryFiles)
         }
-        let chunks = preparedChunks.uploadFiles
+
+        func chunksForProvider(_ provider: any TranscriptionProvider) throws -> [URL] {
+            guard provider.requiresFLACUpload else {
+                return preparedChunks.chunkFiles
+            }
+
+            if let flacUploadChunks {
+                return flacUploadChunks
+            }
+
+            var converted: [URL] = []
+            for chunk in preparedChunks.chunkFiles {
+                if chunk.pathExtension.lowercased() == "flac" {
+                    converted.append(chunk)
+                    continue
+                }
+
+                let transcoded = try transcodeToFLAC(chunk)
+                converted.append(transcoded)
+                temporaryFiles.append(transcoded)
+            }
+            flacUploadChunks = converted
+            return converted
+        }
+
         let primary = try provider(for: preferredPrimary)
         let fallback = try provider(for: preferredFallback)
 
         do {
+            let primaryChunks = try chunksForProvider(primary)
             let text = try await runChunks(
-                chunks: chunks,
+                chunks: primaryChunks,
                 with: primary,
                 model: model(for: preferredPrimary, settings: settings),
                 language: settings.language,
@@ -83,8 +110,9 @@ public actor TranscriptionPipeline {
             if shouldRetryPrimary {
                 try? await Task.sleep(for: .seconds(1))
                 do {
+                    let primaryChunks = try chunksForProvider(primary)
                     let text = try await runChunks(
-                        chunks: chunks,
+                        chunks: primaryChunks,
                         with: primary,
                         model: model(for: preferredPrimary, settings: settings),
                         language: settings.language,
@@ -94,8 +122,9 @@ public actor TranscriptionPipeline {
                     return TranscriptionPipelineResult(text: cleaned, providerUsed: preferredPrimary, fallbackUsed: false)
                 } catch {
                     do {
+                        let fallbackChunks = try chunksForProvider(fallback)
                         let text = try await runChunks(
-                            chunks: chunks,
+                            chunks: fallbackChunks,
                             with: fallback,
                             model: model(for: preferredFallback, settings: settings),
                             language: settings.language,
@@ -112,8 +141,9 @@ public actor TranscriptionPipeline {
             }
 
             do {
+                let fallbackChunks = try chunksForProvider(fallback)
                 let text = try await runChunks(
-                    chunks: chunks,
+                    chunks: fallbackChunks,
                     with: fallback,
                     model: model(for: preferredFallback, settings: settings),
                     language: settings.language,
@@ -200,34 +230,15 @@ public actor TranscriptionPipeline {
         }
     }
 
-    private struct PreparedUploadChunks: Sendable {
-        let uploadFiles: [URL]
+    private struct PreparedSourceChunks: Sendable {
+        let chunkFiles: [URL]
         let temporaryFiles: [URL]
     }
 
-    private func prepareChunksForUpload(_ audioFileURL: URL) throws -> PreparedUploadChunks {
+    private func prepareSourceChunks(_ audioFileURL: URL) throws -> PreparedSourceChunks {
         let chunkFiles = try chunkAudioIfNeeded(audioFileURL)
-
-        var uploadFiles: [URL] = []
-        var temporaryFiles: [URL] = []
-
-        for chunk in chunkFiles {
-            let isTemporaryChunk = chunk != audioFileURL
-            if isTemporaryChunk {
-                temporaryFiles.append(chunk)
-            }
-
-            if chunk.pathExtension.lowercased() == "flac" {
-                uploadFiles.append(chunk)
-                continue
-            }
-
-            let converted = try transcodeToFLAC(chunk)
-            uploadFiles.append(converted)
-            temporaryFiles.append(converted)
-        }
-
-        return PreparedUploadChunks(uploadFiles: uploadFiles, temporaryFiles: temporaryFiles)
+        let temporaryFiles = chunkFiles.filter { $0 != audioFileURL }
+        return PreparedSourceChunks(chunkFiles: chunkFiles, temporaryFiles: temporaryFiles)
     }
 
     private func transcodeToFLAC(_ sourceURL: URL) throws -> URL {

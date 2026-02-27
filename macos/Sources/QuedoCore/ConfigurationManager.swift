@@ -33,6 +33,7 @@ public actor ConfigurationManager {
         static let envLaunchAtLogin = "LAUNCH_AT_LOGIN"
         static let envWhisperModel = "WHISPER_MODEL"
         static let envWhisperCppModelPath = "WHISPER_CPP_MODEL_PATH"
+        static let envWhisperCppRuntime = "WHISPER_CPP_RUNTIME"
         static let envTimeout = "GROQ_TIMEOUT"
         static let envVocabulary = "VOCABULARY"
     }
@@ -286,6 +287,10 @@ public actor ConfigurationManager {
         if let whisperCppModelPath = shared[Constants.envWhisperCppModelPath]?.trimmingCharacters(in: .whitespacesAndNewlines), !whisperCppModelPath.isEmpty {
             settings.provider.whisperCppModelPath = whisperCppModelPath
         }
+        if let runtime = shared[Constants.envWhisperCppRuntime]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let parsedRuntime = WhisperCppRuntime(rawValue: runtime) {
+            settings.provider.whisperCppRuntime = parsedRuntime
+        }
 
         if let timeoutRaw = shared[Constants.envTimeout], let parsed = Int(timeoutRaw.trimmingCharacters(in: .whitespacesAndNewlines)) {
             settings.provider.timeoutSeconds = min(max(parsed, 1), 120)
@@ -324,6 +329,7 @@ public actor ConfigurationManager {
         shared[Constants.envLaunchAtLogin] = settings.launchAtLoginEnabled ? "true" : "false"
         shared[Constants.envWhisperModel] = settings.provider.groqModel
         shared[Constants.envWhisperCppModelPath] = settings.provider.whisperCppModelPath
+        shared[Constants.envWhisperCppRuntime] = settings.provider.whisperCppRuntime.rawValue
         shared[Constants.envTimeout] = String(settings.provider.timeoutSeconds)
         shared[Constants.envVocabulary] = settings.vocabularyHints.joined(separator: ",")
 
@@ -387,6 +393,7 @@ public actor ConfigurationManager {
             Constants.envLaunchAtLogin,
             Constants.envWhisperModel,
             Constants.envWhisperCppModelPath,
+            Constants.envWhisperCppRuntime,
             Constants.envTimeout,
             Constants.envVocabulary
         ]
@@ -576,6 +583,7 @@ public actor ConfigurationManager {
             "groqModel": settings.provider.groqModel,
             "openAIModel": settings.provider.openAIModel,
             "whisperCppModelPath": settings.provider.whisperCppModelPath,
+            "whisperCppRuntime": settings.provider.whisperCppRuntime.rawValue,
             "vocabularyHintsCount": String(settings.vocabularyHints.count)
         ]
     }

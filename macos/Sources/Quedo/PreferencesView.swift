@@ -339,6 +339,17 @@ struct PreferencesView: View {
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: 520)
                 }
+
+                settingRow("whisper.cpp runtime") {
+                    Picker("", selection: $model.whisperCppRuntime) {
+                        ForEach(WhisperCppRuntime.allCases, id: \.self) { runtime in
+                            Text(whisperCppRuntimeLabel(runtime)).tag(runtime)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 220)
+                }
             }
         }
     }
@@ -561,6 +572,17 @@ struct PreferencesView: View {
             return "whisper.cpp"
         }
     }
+
+    private func whisperCppRuntimeLabel(_ runtime: WhisperCppRuntime) -> String {
+        switch runtime {
+        case .auto:
+            return "Auto (Server -> CLI)"
+        case .server:
+            return "Server"
+        case .cli:
+            return "CLI"
+        }
+    }
 }
 
 @MainActor
@@ -576,6 +598,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var groqModel = "whisper-large-v3"
     @Published var openAIModel = "gpt-4o-mini-transcribe"
     @Published var whisperCppModelPath = "ggml-large-v3.bin"
+    @Published var whisperCppRuntime: WhisperCppRuntime = .auto
 
     @Published var hotkeysEnabled = true
     @Published var hotkeyPreset: HotkeyPreset = .fnControl
@@ -857,6 +880,7 @@ final class PreferencesViewModel: ObservableObject {
         loadedSettings.provider.groqModel = normalize(groqModel)
         loadedSettings.provider.openAIModel = normalize(openAIModel)
         loadedSettings.provider.whisperCppModelPath = normalize(whisperCppModelPath)
+        loadedSettings.provider.whisperCppRuntime = whisperCppRuntime
 
         do {
             loadedSettings.hotkeys = try hotkeysForSave()
@@ -1006,6 +1030,7 @@ final class PreferencesViewModel: ObservableObject {
         groqModel = settings.provider.groqModel
         openAIModel = settings.provider.openAIModel
         whisperCppModelPath = settings.provider.whisperCppModelPath
+        whisperCppRuntime = settings.provider.whisperCppRuntime
 
         hotkeysEnabled = !settings.hotkeys.isEmpty
         hotkeyPreset = detectPreset(hotkeys: settings.hotkeys)
@@ -1024,6 +1049,7 @@ final class PreferencesViewModel: ObservableObject {
         let groqModel: String
         let openAIModel: String
         let whisperCppModelPath: String
+        let whisperCppRuntime: WhisperCppRuntime
         let hotkeysEnabled: Bool
         let hotkeyPreset: HotkeyPreset
         let manualToggleHotkeyText: String
@@ -1044,6 +1070,7 @@ final class PreferencesViewModel: ObservableObject {
             groqModel: normalize(groqModel),
             openAIModel: normalize(openAIModel),
             whisperCppModelPath: normalize(whisperCppModelPath),
+            whisperCppRuntime: whisperCppRuntime,
             hotkeysEnabled: hotkeysEnabled,
             hotkeyPreset: hotkeyPreset,
             manualToggleHotkeyText: normalizeHotkey(manualToggleHotkeyText),
@@ -1066,6 +1093,7 @@ final class PreferencesViewModel: ObservableObject {
             groqModel: normalize(settings.provider.groqModel),
             openAIModel: normalize(settings.provider.openAIModel),
             whisperCppModelPath: normalize(settings.provider.whisperCppModelPath),
+            whisperCppRuntime: settings.provider.whisperCppRuntime,
             hotkeysEnabled: !settings.hotkeys.isEmpty,
             hotkeyPreset: detectPreset(hotkeys: settings.hotkeys),
             manualToggleHotkeyText: normalizeHotkey(byAction["toggle"].flatMap(HotkeyCodec.render) ?? ""),

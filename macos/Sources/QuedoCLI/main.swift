@@ -178,6 +178,8 @@ struct Doctor: AsyncParsableCommand {
         }
         let whisperCpp = WhisperCppProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
             try await config.loadSettings().provider.whisperCppModelPath
+        } runtimeProvider: {
+            try await config.loadSettings().provider.whisperCppRuntime
         }
 
         let pipeline = TranscriptionPipeline(
@@ -324,6 +326,8 @@ struct Transcribe: AsyncParsableCommand {
         }
         let whisperCpp = WhisperCppProvider(timeoutSeconds: settings.provider.timeoutSeconds) {
             try await config.loadSettings().provider.whisperCppModelPath
+        } runtimeProvider: {
+            try await config.loadSettings().provider.whisperCppRuntime
         }
 
         let pipeline = TranscriptionPipeline(
