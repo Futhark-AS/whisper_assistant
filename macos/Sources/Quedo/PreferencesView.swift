@@ -12,6 +12,34 @@ enum HotkeyPreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct WhisperCppInstallPreset: Hashable {
+    let variant: String
+    let title: String
+    let detail: String
+    let approxSizeGB: Double
+
+    var fileName: String {
+        "ggml-\(variant).bin"
+    }
+
+    var downloadURL: URL {
+        URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(fileName)")!
+    }
+
+    var sizeLabel: String {
+        String(format: "~%.1f GB", approxSizeGB)
+    }
+}
+
+struct WhisperCppInstalledModel: Hashable {
+    let path: String
+    let sizeBytes: Int64
+
+    var sizeLabel: String {
+        String(format: "%.1f GB", Double(sizeBytes) / 1_000_000_000.0)
+    }
+}
+
 private enum PreferencesPane: String, CaseIterable, Identifiable {
     case general
     case providers
@@ -343,32 +371,86 @@ struct PreferencesView: View {
                 settingRow("Detected models") {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
-                            Menu("Use Installed Model") {
-                                if model.availableWhisperCppModels.isEmpty {
-                                    Text("No local models found")
-                                } else {
-                                    ForEach(model.availableWhisperCppModels, id: \.self) { modelPath in
-                                        Button {
-                                            model.whisperCppModelPath = modelPath
-                                        } label: {
-                                            Text(whisperCppModelLabel(modelPath))
-                                        }
-                                    }
-                                }
-                            }
-                            .menuStyle(.borderlessButton)
-
                             Button("Refresh") {
                                 model.refreshWhisperCppModels()
                             }
                             .buttonStyle(.bordered)
+
+                            Text("\(model.availableWhisperCppModels.count) installed")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
 
                         if model.availableWhisperCppModels.isEmpty {
                             Text("No local .bin models detected in whisper model directories.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(model.availableWhisperCppModels, id: \.path) { installed in
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(whisperCppModelLabel(installed.path))
+                                            .font(.caption)
+                                        Text(installed.sizeLabel)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    if model.whisperCppModelPath == installed.path {
+                                        Text("Selected")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Button("Use") {
+                                        model.whisperCppModelPath = installed.path
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(model.whisperCppModelPath == installed.path)
+
+                                    Button("Delete") {
+                                        model.deleteWhisperCppModel(installed.path)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(model.isInstallingWhisperCppModel)
+                                }
+                            }
                         }
+                    }
+                }
+
+                settingRow("Download models") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Menu("Download Whisper Model") {
+                                ForEach(model.whisperCppInstallPresets, id: \.variant) { preset in
+                                    Button {
+                                        Task { await model.installWhisperCppModel(preset) }
+                                    } label: {
+                                        Text("\(preset.title) (\(preset.sizeLabel), \(preset.detail))")
+                                    }
+                                }
+                            }
+                            .menuStyle(.borderlessButton)
+                            .disabled(model.isInstallingWhisperCppModel)
+
+                            if model.isInstallingWhisperCppModel {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+
+                        if let activeDownload = model.activeWhisperCppDownloadTitle {
+                            Text("Downloading \(activeDownload)...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("Downloads to ~/.cache/whisper, verifies response, and selects model when complete.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -641,7 +723,9 @@ final class PreferencesViewModel: ObservableObject {
     @Published var openAIModel = "gpt-4o-mini-transcribe"
     @Published var whisperCppModelPath = "ggml-large-v3.bin"
     @Published var whisperCppRuntime: WhisperCppRuntime = .auto
-    @Published var availableWhisperCppModels: [String] = []
+    @Published var availableWhisperCppModels: [WhisperCppInstalledModel] = []
+    @Published var isInstallingWhisperCppModel = false
+    @Published var activeWhisperCppDownloadTitle: String?
 
     @Published var hotkeysEnabled = true
     @Published var hotkeyPreset: HotkeyPreset = .fnControl
@@ -661,6 +745,33 @@ final class PreferencesViewModel: ObservableObject {
     private let configurationManager: ConfigurationManager
     private let onSaved: @MainActor @Sendable () -> Void
     private var loadedSettings = AppSettings.default
+
+    let whisperCppInstallPresets: [WhisperCppInstallPreset] = [
+        WhisperCppInstallPreset(
+            variant: "large-v3-q5_0",
+            title: "Large v3 q5_0",
+            detail: "balanced quality/speed",
+            approxSizeGB: 1.1
+        ),
+        WhisperCppInstallPreset(
+            variant: "large-v3",
+            title: "Large v3 (full)",
+            detail: "max quality",
+            approxSizeGB: 3.1
+        ),
+        WhisperCppInstallPreset(
+            variant: "large-v3-turbo-q5_0",
+            title: "Large v3 turbo q5_0",
+            detail: "fastest balanced",
+            approxSizeGB: 1.1
+        ),
+        WhisperCppInstallPreset(
+            variant: "large-v3-turbo",
+            title: "Large v3 turbo",
+            detail: "very fast",
+            approxSizeGB: 1.6
+        )
+    ]
 
     init(
         configurationManager: ConfigurationManager,
@@ -750,6 +861,101 @@ final class PreferencesViewModel: ObservableObject {
 
     func refreshWhisperCppModels() {
         availableWhisperCppModels = discoveredWhisperCppModels(currentSelection: normalize(whisperCppModelPath))
+    }
+
+    func installWhisperCppModel(_ preset: WhisperCppInstallPreset) async {
+        guard !isInstallingWhisperCppModel else {
+            return
+        }
+
+        isInstallingWhisperCppModel = true
+        defer { isInstallingWhisperCppModel = false }
+
+        let fileManager = FileManager.default
+        let cacheDirectory = whisperCppModelCacheDirectory()
+        let destinationURL = cacheDirectory.appendingPathComponent(preset.fileName)
+
+        do {
+            try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                whisperCppModelPath = destinationURL.path
+                refreshWhisperCppModels()
+                let sizeLabel = fileSizeLabel(at: destinationURL.path) ?? "unknown size"
+                statusMessage = "\(preset.title) already installed (\(sizeLabel))."
+                statusIsError = false
+                return
+            }
+
+            statusMessage = "Downloading \(preset.title)..."
+            statusIsError = false
+            activeWhisperCppDownloadTitle = preset.title
+
+            let request = URLRequest(url: preset.downloadURL, timeoutInterval: 60 * 30)
+            let (temporaryURL, response) = try await URLSession.shared.download(for: request)
+
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                throw NSError(
+                    domain: "PreferencesViewModel",
+                    code: http.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"]
+                )
+            }
+
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+
+            whisperCppModelPath = destinationURL.path
+            refreshWhisperCppModels()
+            let sizeLabel = fileSizeLabel(at: destinationURL.path) ?? "unknown size"
+            statusMessage = "Installed \(preset.title) (\(sizeLabel))."
+            statusIsError = false
+            activeWhisperCppDownloadTitle = nil
+        } catch {
+            let reason: String
+            if let urlError = error as? URLError {
+                reason = "network error (\(urlError.code.rawValue)): \(urlError.localizedDescription)"
+            } else {
+                reason = error.localizedDescription
+            }
+            statusMessage = "Failed to download \(preset.title): \(reason)"
+            statusIsError = true
+            activeWhisperCppDownloadTitle = nil
+        }
+    }
+
+    func deleteWhisperCppModel(_ modelPath: String) {
+        let normalized = (modelPath as NSString).expandingTildeInPath
+        let fileManager = FileManager.default
+
+        guard fileManager.fileExists(atPath: normalized) else {
+            refreshWhisperCppModels()
+            statusMessage = "Model file not found: \(normalized)"
+            statusIsError = true
+            return
+        }
+
+        do {
+            try fileManager.removeItem(atPath: normalized)
+            refreshWhisperCppModels()
+
+            if normalize(whisperCppModelPath) == normalize(normalized) {
+                if let replacement = availableWhisperCppModels.first?.path {
+                    whisperCppModelPath = replacement
+                    statusMessage = "Deleted model and switched to \(URL(fileURLWithPath: replacement).lastPathComponent)."
+                } else {
+                    whisperCppModelPath = ProviderConfiguration.defaultValue.whisperCppModelPath
+                    statusMessage = "Deleted model. No local models remain."
+                }
+            } else {
+                statusMessage = "Deleted \(URL(fileURLWithPath: normalized).lastPathComponent)."
+            }
+            statusIsError = false
+        } catch {
+            statusMessage = "Failed to delete model: \(error.localizedDescription)"
+            statusIsError = true
+        }
     }
 
     func clearAPIKeyInput(_ provider: ProviderKind) {
@@ -1068,7 +1274,7 @@ final class PreferencesViewModel: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
-    private func discoveredWhisperCppModels(currentSelection: String) -> [String] {
+    private func discoveredWhisperCppModels(currentSelection: String) -> [WhisperCppInstalledModel] {
         let fileManager = FileManager.default
         let directories = [
             "/opt/homebrew/opt/whisper-cpp/share/whisper/models",
@@ -1078,7 +1284,7 @@ final class PreferencesViewModel: ObservableObject {
             "~/.cache/whisper"
         ].map { ($0 as NSString).expandingTildeInPath }
 
-        var models = Set<String>()
+        var models: [String: Int64] = [:]
         for directory in directories {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -1093,16 +1299,20 @@ final class PreferencesViewModel: ObservableObject {
             )) ?? []
 
             for entry in entries where entry.pathExtension.lowercased() == "bin" {
-                models.insert(entry.path)
+                let path = entry.path
+                let size = fileSizeBytes(at: path) ?? 0
+                if models[path] == nil {
+                    models[path] = size
+                }
             }
         }
 
         let expandedSelection = (currentSelection as NSString).expandingTildeInPath
         if !expandedSelection.isEmpty, fileManager.fileExists(atPath: expandedSelection) {
-            models.insert(expandedSelection)
+            models[expandedSelection] = fileSizeBytes(at: expandedSelection) ?? 0
         }
 
-        return models.sorted { lhs, rhs in
+        let sortedPaths = models.keys.sorted { lhs, rhs in
             let leftName = URL(fileURLWithPath: lhs).lastPathComponent
             let rightName = URL(fileURLWithPath: rhs).lastPathComponent
             if leftName == rightName {
@@ -1110,6 +1320,27 @@ final class PreferencesViewModel: ObservableObject {
             }
             return leftName < rightName
         }
+
+        return sortedPaths.map { path in
+            WhisperCppInstalledModel(path: path, sizeBytes: models[path] ?? 0)
+        }
+    }
+
+    private func whisperCppModelCacheDirectory() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/whisper", isDirectory: true)
+    }
+
+    private func fileSizeBytes(at path: String) -> Int64? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return (attributes?[.size] as? NSNumber)?.int64Value
+    }
+
+    private func fileSizeLabel(at path: String) -> String? {
+        guard let bytes = fileSizeBytes(at: path) else {
+            return nil
+        }
+        return String(format: "%.1f GB", Double(bytes) / 1_000_000_000.0)
     }
 
     private func apply(settings: AppSettings) {
