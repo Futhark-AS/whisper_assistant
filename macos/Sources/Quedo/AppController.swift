@@ -228,6 +228,7 @@ actor AppControllerActor {
     func shutdown() async {
         await audioEngine.cancelRecording()
         hotkeyManager.deactivate()
+        await transcriptionPipeline.shutdown()
         try? await lifecycle.transition(to: .shuttingDown)
         await pushUI()
     }

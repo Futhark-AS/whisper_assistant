@@ -159,6 +159,15 @@ public actor TranscriptionPipeline {
         }
     }
 
+    /// Shuts down any provider-managed background processes.
+    public func shutdown() async {
+        for provider in providers.values {
+            if let whisper = provider as? WhisperCppProvider {
+                await whisper.shutdownServer()
+            }
+        }
+    }
+
     /// Performs a provider connectivity probe with 6-second timeout budget.
     public func connectivityCheck(primary: ProviderKind, fallback: ProviderKind) async -> (primaryOK: Bool, fallbackOK: Bool) {
         guard let primaryProvider = providers[primary], let fallbackProvider = providers[fallback] else {

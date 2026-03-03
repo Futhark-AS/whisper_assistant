@@ -31,17 +31,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        _ = notification
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let didBecomeActiveObserver {
             NotificationCenter.default.removeObserver(didBecomeActiveObserver)
             self.didBecomeActiveObserver = nil
         }
         permissionRecoveryTask?.cancel()
         permissionRecoveryTask = nil
-        Task {
-            await appController?.shutdown()
+
+        guard let appController else {
+            return .terminateNow
         }
+
+        Task {
+            await appController.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     private func bootstrap(menuBar: MenuBarController) async {

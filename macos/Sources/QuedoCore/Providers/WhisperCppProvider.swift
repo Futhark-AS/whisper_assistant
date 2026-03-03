@@ -48,6 +48,11 @@ public struct WhisperCppProvider: TranscriptionProvider {
         return try await transcribe(request: request, modelURL: modelURL, runtime: runtime)
     }
 
+    /// Stops any managed whisper-server process.
+    public func shutdownServer() async {
+        await serverManager.shutdown()
+    }
+
     /// Checks if configured whisper.cpp runtime is reachable.
     public func checkHealth(timeoutSeconds: Int) async -> Bool {
         let timeout = max(1, timeoutSeconds)
@@ -433,6 +438,7 @@ private actor WhisperCppServerManager {
         }
 
         stopServer()
+        await killOrphanedServers()
 
         for port in candidatePorts() {
             let baseURL = URL(string: "http://127.0.0.1:\(port)")!
@@ -466,6 +472,21 @@ private actor WhisperCppServerManager {
         }
 
         throw ProviderError.networkFailure
+    }
+
+    func shutdown() {
+        stopServer()
+    }
+
+    private func killOrphanedServers() async {
+        let killProcess = Process()
+        killProcess.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        killProcess.arguments = ["-x", "whisper-server"]
+        killProcess.standardOutput = FileHandle.nullDevice
+        killProcess.standardError = FileHandle.nullDevice
+        try? killProcess.run()
+        // Give processes time to exit and release ports.
+        try? await Task.sleep(for: .milliseconds(200))
     }
 
     private func stopServer() {
