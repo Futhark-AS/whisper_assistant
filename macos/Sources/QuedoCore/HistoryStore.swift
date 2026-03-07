@@ -215,6 +215,12 @@ public actor HistoryStore {
                    COALESCE(t.transcript_text, '')
             FROM sessions s
             LEFT JOIN session_transcripts t ON t.session_id = s.session_id
+                AND t.id = (
+                    SELECT id FROM session_transcripts
+                    WHERE session_id = s.session_id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
             ORDER BY s.created_at DESC
             LIMIT ?;
             """
