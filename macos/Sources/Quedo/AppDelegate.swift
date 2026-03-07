@@ -138,7 +138,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .preferences, .openProviderSettings:
                 self.showPreferences(configurationManager: configurationManager)
             case .history:
-                self.showHistory(historyStore: historyStore)
+                self.showHistory(
+                    historyStore: historyStore,
+                    transcriptionPipeline: transcriptionPipeline,
+                    configurationManager: configurationManager
+                )
             case .openSettings:
                 Task {
                     let permissions = await permissionCoordinator.checkAll()
@@ -281,8 +285,16 @@ Move the app to /Applications and reopen it. Running translocated can break perm
         preferencesWindowController = windowController
     }
 
-    private func showHistory(historyStore: HistoryStore) {
-        let view = HistoryView(historyStore: historyStore)
+    private func showHistory(
+        historyStore: HistoryStore,
+        transcriptionPipeline: TranscriptionPipeline,
+        configurationManager: ConfigurationManager
+    ) {
+        let view = HistoryView(
+            historyStore: historyStore,
+            transcriptionPipeline: transcriptionPipeline,
+            configurationManager: configurationManager
+        )
         let controller = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: controller)
         window.title = "History"

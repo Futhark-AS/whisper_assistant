@@ -10,6 +10,8 @@ public enum HistoryStoreError: Error, Sendable {
     case sqlError(message: String)
     /// Legacy migration source does not exist.
     case legacySourceMissing
+    /// No transcript row exists for the given session.
+    case transcriptNotFound
 }
 
 /// Lightweight history list row.
@@ -280,6 +282,34 @@ public actor HistoryStore {
         }
 
         return sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
+    }
+
+    /// Replaces the transcript text for a session.
+    public func updateTranscript(sessionID: UUID, text: String) throws {
+        let statement = try prepare(
+            """
+            UPDATE session_transcripts
+            SET transcript_text = ?, created_at = ?
+            WHERE session_id = ?
+            AND id = (
+                SELECT id FROM session_transcripts
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            );
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+
+        bindText(text, to: 1, in: statement)
+        bindDouble(Date().timeIntervalSince1970, to: 2, in: statement)
+        bindText(sessionID.uuidString, to: 3, in: statement)
+        bindText(sessionID.uuidString, to: 4, in: statement)
+        try stepDone(statement)
+
+        guard sqlite3_changes(db) > 0 else {
+            throw HistoryStoreError.transcriptNotFound
+        }
     }
 
     /// Returns the primary audio media file URL for a session when available.

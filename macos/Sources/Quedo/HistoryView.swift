@@ -6,8 +6,16 @@ import QuedoCore
 struct HistoryView: View {
     @StateObject private var model: HistoryViewModel
 
-    init(historyStore: HistoryStore) {
-        _model = StateObject(wrappedValue: HistoryViewModel(historyStore: historyStore))
+    init(
+        historyStore: HistoryStore,
+        transcriptionPipeline: TranscriptionPipeline,
+        configurationManager: ConfigurationManager
+    ) {
+        _model = StateObject(wrappedValue: HistoryViewModel(
+            historyStore: historyStore,
+            transcriptionPipeline: transcriptionPipeline,
+            configurationManager: configurationManager
+        ))
     }
 
     var body: some View {
@@ -49,6 +57,20 @@ struct HistoryView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        TextField("Language (e.g. en, no, auto)", text: model.retranscribeLanguageBinding(for: session.sessionID))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 180)
+
+                        Button(model.retranscribingSessionID == session.sessionID ? "Transcribing..." : "Re-transcribe") {
+                            Task {
+                                await model.retranscribe(sessionID: session.sessionID)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.retranscribingSessionID != nil)
+                    }
                 }
                 .padding(.vertical, 4)
                 .onAppear {
@@ -98,13 +120,30 @@ final class HistoryViewModel: ObservableObject {
     @Published var statusMessage: String?
     @Published var hasMore = false
     @Published var isLoadingMore = false
+    @Published var retranscribingSessionID: UUID?
+    @Published var retranscribeLanguages: [UUID: String] = [:]
 
     private let historyStore: HistoryStore
+    private let transcriptionPipeline: TranscriptionPipeline
+    private let configurationManager: ConfigurationManager
     private let pageSize = 100
     private var currentLimit = 100
 
-    init(historyStore: HistoryStore) {
+    init(
+        historyStore: HistoryStore,
+        transcriptionPipeline: TranscriptionPipeline,
+        configurationManager: ConfigurationManager
+    ) {
         self.historyStore = historyStore
+        self.transcriptionPipeline = transcriptionPipeline
+        self.configurationManager = configurationManager
+    }
+
+    func retranscribeLanguageBinding(for sessionID: UUID) -> Binding<String> {
+        Binding(
+            get: { self.retranscribeLanguages[sessionID, default: "auto"] },
+            set: { self.retranscribeLanguages[sessionID] = $0 }
+        )
     }
 
     func load(reset: Bool) async {
@@ -174,6 +213,45 @@ final class HistoryViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             errorMessage = "Failed to copy transcript"
+        }
+    }
+
+    func retranscribe(sessionID: UUID) async {
+        guard retranscribingSessionID == nil else { return }
+
+        do {
+            guard let audioURL = try await historyStore.primaryAudioFileURL(sessionID: sessionID) else {
+                errorMessage = "No audio file found for this session"
+                return
+            }
+
+            guard FileManager.default.fileExists(atPath: audioURL.path) else {
+                errorMessage = "Audio file missing from disk"
+                return
+            }
+
+            retranscribingSessionID = sessionID
+            statusMessage = "Re-transcribing..."
+            errorMessage = nil
+
+            let language = retranscribeLanguages[sessionID, default: "auto"]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var settings = try await configurationManager.loadSettings()
+            settings.language = language.isEmpty ? "auto" : language
+
+            let result = try await transcriptionPipeline.transcribe(
+                audioFileURL: audioURL,
+                settings: settings
+            )
+
+            try await historyStore.updateTranscript(sessionID: sessionID, text: result.text)
+            statusMessage = "Re-transcription complete"
+            retranscribingSessionID = nil
+            await load(reset: true)
+        } catch {
+            errorMessage = "Re-transcription failed: \(error.localizedDescription)"
+            statusMessage = nil
+            retranscribingSessionID = nil
         }
     }
 }
